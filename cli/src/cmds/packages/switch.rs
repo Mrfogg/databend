@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ impl Command for SwitchCommand {
     fn clap(&self) -> App<'static> {
         App::new("switch")
             .about(self.about())
-            .arg(Arg::new("version").required(true).about(
+            .arg(Arg::new("version").required(true).help(
             "Version of databend package, e.g. v0.4.69-nightly. Check the versions: package list",
         ))
     }

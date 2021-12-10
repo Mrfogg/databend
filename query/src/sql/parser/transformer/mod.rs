@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +14,6 @@
 
 mod transform_sqlparser;
 
-#[cfg(test)]
-mod transform_sqlparser_test;
-
 use common_exception::Result;
 
 use crate::sql::parser::ast::Statement;
@@ -28,7 +25,6 @@ pub trait AstTransformer {
     fn transform(&self) -> Result<Statement>;
 }
 
-#[allow(dead_code)]
 pub struct AstTransformerFactory;
 
 impl AstTransformerFactory {

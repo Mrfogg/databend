@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +14,6 @@
 
 pub use self::mysql_handler::MySQLHandler;
 pub use self::mysql_session::MySQLConnection;
-
-#[cfg(test)]
-mod mysql_handler_test;
 
 mod mysql_handler;
 mod mysql_interactive_worker;

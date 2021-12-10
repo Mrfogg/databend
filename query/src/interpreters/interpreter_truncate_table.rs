@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,18 +21,15 @@ use common_streams::SendableDataBlockStream;
 
 use crate::interpreters::Interpreter;
 use crate::interpreters::InterpreterPtr;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 
 pub struct TruncateTableInterpreter {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
     plan: TruncateTablePlan,
 }
 
 impl TruncateTableInterpreter {
-    pub fn try_create(
-        ctx: DatabendQueryContextRef,
-        plan: TruncateTablePlan,
-    ) -> Result<InterpreterPtr> {
+    pub fn try_create(ctx: Arc<QueryContext>, plan: TruncateTablePlan) -> Result<InterpreterPtr> {
         Ok(Arc::new(TruncateTableInterpreter { ctx, plan }))
     }
 }
@@ -47,13 +44,13 @@ impl Interpreter for TruncateTableInterpreter {
         &self,
         _input_stream: Option<SendableDataBlockStream>,
     ) -> Result<SendableDataBlockStream> {
-        let table = self
-            .ctx
-            .get_table(self.plan.db.as_str(), self.plan.table.as_str())?;
+        let database = self.plan.db.as_str();
+        let table = self.plan.table.as_str();
+        let truncate_table = self.ctx.get_table(database, table).await?;
 
-        let io_ctx = self.ctx.get_cluster_table_io_context()?;
-        let io_ctx = Arc::new(io_ctx);
-        table.truncate(io_ctx, self.plan.clone()).await?;
+        truncate_table
+            .truncate(self.ctx.clone(), self.plan.clone())
+            .await?;
         Ok(Box::pin(DataBlockStream::create(
             self.plan.schema(),
             None,

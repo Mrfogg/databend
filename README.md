@@ -1,5 +1,5 @@
 <div align="center">
-<p align="center"><img alt="Databend Logo" src="website/databend/docs/images/databend-logo.png" width="20%"/></p>
+<p align="center"><img alt="Databend Logo" src="website/databend/static/img/favicon.png" width="20%"/></p>
 <p align="center">The Open Source Serverless Data Warehouse for Everyone</p>
  
 <h4 align="center">
@@ -15,10 +15,6 @@
 
 <a href="https://github.com/datafuselabs/databend/actions">
 <img src="https://github.com/datafuselabs/databend/actions/workflows/unit-tests.yml/badge.svg" alt="CI Status" />
-</a>
-
-<a href="https://codecov.io/gh/datafuselabs/databend">
-<img src="https://codecov.io/gh/datafuselabs/databend/branch/main/graph/badge.svg" alt="codecov" />
 </a>
 
 <img src="https://img.shields.io/badge/Platform-Linux,%20ARM,%20OS%20X,%20Windows-green.svg?style=flat" alt="patform" />
@@ -87,7 +83,7 @@ For efficient pruning, Databend also creates indexes for each Parquet file to sp
 * [Databend Contributing](https://databend.rs/development/contributing/)
 * [Databend Architecture](https://databend.rs/overview/architecture/)
 * [Databend Performance](https://databend.rs/overview/performance/)
-* [Databend Weekly](https://datafuselabs.github.io/weekly/)
+* [Databend Weekly](https://weekly.databend.rs/)
 
 ## Roadmap
 
@@ -96,3 +92,9 @@ Databend is currently in **Alpha** and is not ready to be used in production, [R
 ## License
 
 Databend is licensed under [Apache 2.0](LICENSE).
+
+## Acknowledgement
+
+### Document Hosting
+
+[![](https://www.datocms-assets.com/31049/1618983297-powered-by-vercel.svg)](https://vercel.com/?utm_source=databend&utm_campaign=oss)

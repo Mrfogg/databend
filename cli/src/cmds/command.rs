@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,8 @@ pub trait Command: DynClone + Send + Sync {
     async fn exec_matches(&self, writer: &mut Writer, args: Option<&ArgMatches>) -> Result<()>;
 
     async fn exec(&self, writer: &mut Writer, args: String) -> Result<()> {
-        match self.clap().try_get_matches_from(args.split(' ')) {
+        let split_args = args.split(' ').filter(|s| !s.is_empty());
+        match self.clap().try_get_matches_from(split_args) {
             Ok(matches) => {
                 return self.exec_matches(writer, Some(&matches)).await;
             }
@@ -62,15 +63,8 @@ pub trait Command: DynClone + Send + Sync {
             )));
         }
 
-        let matches = match matches {
-            None => {
-                return Err(CliError::Unknown(format!(
-                    "expected args in {}",
-                    self.name()
-                )))
-            }
-            Some(m) => m,
-        };
+        let matches = matches
+            .ok_or_else(|| CliError::Unknown(format!("expected args in {}", self.name())))?;
 
         for subcommand in subcommands.into_iter() {
             if matches.subcommand_name() == Some(subcommand.name()) {

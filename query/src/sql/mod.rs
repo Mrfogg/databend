@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(test)]
-mod plan_parser_test;
-#[cfg(test)]
-mod sql_parser_test;
-
 mod metrics;
-mod parser;
+pub mod parser;
 mod plan_parser;
 mod sql_common;
 mod sql_parser;
 mod sql_statement;
+pub mod statements;
 
 pub use plan_parser::PlanParser;
 pub use sql_common::SQLCommon;

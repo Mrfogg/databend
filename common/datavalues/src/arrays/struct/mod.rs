@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,10 +57,14 @@ impl DFStructArray {
     /// # Safety
     /// Note this doesn't do any bound checking, for performance reason.
     pub unsafe fn try_get(&self, index: usize) -> Result<DataValue> {
-        let nested_array = self.array.values()[index].clone();
-        let series = nested_array.into_series();
-        let scalar_vec = (0..series.len())
-            .map(|i| series.try_get(i))
+        let scalar_vec = self
+            .array
+            .values()
+            .iter()
+            .map(|value| {
+                let series = value.clone().into_series();
+                series.try_get(index)
+            })
             .collect::<Result<Vec<_>>>()?;
         Ok(DataValue::Struct(scalar_vec))
     }

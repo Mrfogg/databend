@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ use crate::test::Test;
 fn test_rewrite_projection_alias_plan() -> Result<()> {
     use pretty_assertions::assert_eq;
 
-    #[allow(dead_code)]
     struct RewriteTest {
         name: &'static str,
         exprs: Vec<Expression>,

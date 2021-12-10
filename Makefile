@@ -15,6 +15,8 @@ YAMLLINT_CONFIG ?= .yamllint.yml
 YAMLLINT_IMAGE ?= docker.io/cytopia/yamllint:latest
 YAMLLINT_DOCKER ?= docker $(YAML_DOCKER_ARGS) $(YAMLLINT_IMAGE)
 
+CARGO_TARGET_DIR ?= $(CURDIR)/target
+
 # Setup dev toolchain
 setup:
 	bash ./scripts/setup/dev_setup.sh
@@ -25,6 +27,10 @@ fmt:
 lint:
 	cargo fmt
 	cargo clippy --tests -- -D warnings
+	# Python file formatter(make setup to install)
+	yapf -ri tests/
+	# Bash file formatter(make setup to install)
+	shfmt -l -w scripts/*
 
 lint-yaml: $(YAML_FILES)
 	$(YAMLLINT_DOCKER) -f parsable -c $(YAMLLINT_CONFIG) $(YAMLLINT_ARGS) -- $?
@@ -41,6 +47,12 @@ run-debug: build-debug
 
 build:
 	bash ./scripts/build/build-release.sh
+ifeq ($(shell uname),Linux) # Macs don't have objcopy
+	# Reduce binary size by compressing binaries.
+	objcopy --compress-debug-sections=zlib-gnu ${CARGO_TARGET_DIR}/release/databend-query
+	objcopy --compress-debug-sections=zlib-gnu ${CARGO_TARGET_DIR}/release/databend-benchmark
+	objcopy --compress-debug-sections=zlib-gnu ${CARGO_TARGET_DIR}/release/databend-meta
+endif
 
 build-native:
 	bash ./scripts/build/build-native.sh
@@ -48,22 +60,18 @@ build-native:
 build-debug:
 	bash ./scripts/build/build-debug.sh
 
-build-tool:
-	docker build . -t ${HUB}/build-tool:arm-unknown-linux-gnueabi  --file ./docker/build-tool/armv6/Dockerfile
-	docker build . -t ${HUB}/build-tool:aarch64-unknown-linux-gnu  --file ./docker/build-tool/arm64/Dockerfile
-	docker build . -t ${HUB}/build-tool:armv7-unknown-linux-gnueabihf  --file ./docker/build-tool/armv7/Dockerfile
-	docker push ${HUB}/build-tool:arm-unknown-linux-gnueabi
-	docker push ${HUB}/build-tool:aarch64-unknown-linux-gnu
-	docker push ${HUB}/build-tool:armv7-unknown-linux-gnueabihf
-
 cross-compile-debug:
 	cross build --target aarch64-unknown-linux-gnu
 
 cross-compile-release:
-	cross build --target aarch64-unknown-linux-gnu --release
+	RUSTFLAGS="-C link-arg=-Wl,--compress-debug-sections=zlib-gabi" cross build --target aarch64-unknown-linux-gnu --release
 
 cli-build:
 	bash ./scripts/build/build-cli.sh build-cli
+ifeq ($(shell uname),Linux) # Macs don't have objcopy
+	# Reduce binary size by compressing binaries.
+	objcopy --compress-debug-sections=zlib-gnu ${CARGO_TARGET_DIR}/release/bendctl
+endif
 
 cli-build-debug:
 	bash ./scripts/build/build-cli.sh build-cli-debug
@@ -79,7 +87,7 @@ unit-test:
 
 # Bendctl with cluster for stateful test.
 cluster: build cli-build
-	mkdir -p ./.databend/local/bin/test/ && make cluster_stop || echo "stop"
+	mkdir -p ./.databend/local/bin/test/ && mkdir ./.databend/local/configs/local/  && make cluster_stop || echo "stop"
 	cp ./target/release/databend-query ./.databend/local/bin/test/databend-query
 	cp ./target/release/databend-meta ./.databend/local/bin/test/databend-meta
 	./target/release/bendctl cluster create --databend_dir ./.databend --group local --version test --num-cpus ${NUM_CPUS} --query-tenant-id ${TENANT_ID} --query-cluster-id ${CLUSTER_ID} --force
@@ -93,29 +101,29 @@ cluster_stop:
 	@if find ./.databend/local/configs/local/ -maxdepth 0 -empty | read v ; then echo there is no cluster exists; else ./target/release/bendctl cluster stop --databend_dir ./.databend --group local; fi
 
 embedded-meta-test: build-debug
-	rm -rf ./_meta_embedded
+	rm -rf ./_meta_embedded*
 	bash ./scripts/ci/ci-run-tests-embedded-meta.sh
 
 stateless-test: build-debug
-	rm -rf ./_meta/
+	rm -rf ./_meta*/
 	ulimit -n 10000; bash ./scripts/ci/ci-run-stateless-tests-standalone.sh
 
 stateful-test:
-	rm -rf ./_meta/
+	rm -rf ./_meta*/
 	rm -rf ./.databend/
 	ulimit -n 10000; bash ./scripts/ci/ci-run-stateful-tests-standalone.sh
 
 stateful-cluster-test:
-	rm -rf ./_meta/
+	rm -rf ./_meta*/
 	rm -rf ./.databend/
 	bash ./scripts/ci/ci-run-stateful-tests-cluster.sh
 
 stateless-cluster-test: build-debug
-	rm -rf ./_meta/
+	rm -rf ./_meta*/
 	bash ./scripts/ci/ci-run-stateless-tests-cluster.sh
 
 stateless-cluster-test-tls: build-debug
-	rm -rf ./_meta/
+	rm -rf ./_meta*/
 	bash ./scripts/ci/ci-run-stateless-tests-cluster-tls.sh
 
 test: unit-test stateless-test
@@ -124,24 +132,17 @@ docker:
 	docker build --network host -f docker/Dockerfile -t ${HUB}/databend-query:${TAG} .
 
 k8s-docker:
-#	cargo build --target x86_64-unknown-linux-gnu --release
-#	cross build --target aarch64-unknown-linux-gnu --release
-	mkdir -p ./distro/linux/amd64
-	mkdir -p ./distro/linux/arm64
-	cp ./target/x86_64-unknown-linux-gnu/release/databend-meta ./distro/linux/amd64
-	cp ./target/x86_64-unknown-linux-gnu/release/databend-query ./distro/linux/amd64
-	cp ./target/aarch64-unknown-linux-gnu/release/databend-meta ./distro/linux/arm64
-	cp ./target/aarch64-unknown-linux-gnu/release/databend-query ./distro/linux/arm64
-	mkdir -p ./distro/linux/arm64
-	docker buildx build . -f ./docker/meta/Dockerfile  --platform ${PLATFORM} --allow network.host --builder host -t ${HUB}/databend-meta:${TAG} --push
-	docker buildx build . -f ./docker/query/Dockerfile  --platform ${PLATFORM} --allow network.host --builder host -t ${HUB}/databend-query:${TAG} --push
+	bash ./scripts/build/build-k8s-runner.sh
 
 docker_release:
-	docker buildx build . -f ./docker/release/Dockerfile  --platform ${PLATFORM} --allow network.host --builder host -t ${HUB}/databend:${TAG} --build-arg VERSION=${VERSION}--push
+	docker buildx build . -f ./docker/release/Dockerfile  --platform ${PLATFORM} --allow network.host --builder host -t ${HUB}/databend:${TAG} --build-arg VERSION=${VERSION} --push
 
 # experiment feature: take a look at docker/README.md for detailed multi architecture image build support
 dockerx:
 	docker buildx build . -f ./docker/Dockerfile  --platform ${PLATFORM} --allow network.host --builder host -t ${HUB}/databend-query:${TAG} --build-arg VERSION=${VERSION} --push
+
+build-tool:
+	bash ./scripts/build/build-tool-runner.sh
 
 build-perf-tool:
 	cargo build --target x86_64-unknown-linux-gnu --bin databend-benchmark
@@ -157,7 +158,7 @@ profile:
 clean:
 	cargo clean
 	rm -f ./nohup.out ./tests/suites/0_stateless/*.stdout-e
-	rm -rf ./_meta/ ./_logs/ ./query/_logs/ ./metasrv/_logs/
+	rm -rf ./_meta*/ ./_logs/ ./query/_logs/ ./metasrv/_logs/
 	rm -rf ./common/base/_logs/ ./common/meta/raft-store/_logs/ ./common/meta/sled-store/_logs/
 
 .PHONY: setup test run build fmt lint docker clean

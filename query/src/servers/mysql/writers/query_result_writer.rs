@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -78,6 +78,7 @@ impl<'a, W: std::io::Write> DFQueryResultWriter<'a, W> {
                 DataType::DateTime32(_) => Ok(ColumnType::MYSQL_TYPE_DATETIME),
                 DataType::Null => Ok(ColumnType::MYSQL_TYPE_NULL),
                 DataType::Interval(_) => Ok(ColumnType::MYSQL_TYPE_LONG),
+                DataType::Struct(_) => Ok(ColumnType::MYSQL_TYPE_VARCHAR),
                 _ => Err(ErrorCode::UnImplement(format!(
                     "Unsupported column type:{:?}",
                     field.data_type()
@@ -116,7 +117,7 @@ impl<'a, W: std::io::Write> DFQueryResultWriter<'a, W> {
                                 continue;
                             }
                             let data_type = block.schema().fields()[col_index].data_type();
-                            match (data_type, val) {
+                            match (data_type, val.clone()) {
                                 (DataType::Boolean, DataValue::Boolean(Some(v))) => {
                                     row_writer.write_col(v as i8)?
                                 }
@@ -165,10 +166,14 @@ impl<'a, W: std::io::Write> DFQueryResultWriter<'a, W> {
                                 (DataType::String, DataValue::String(Some(v))) => {
                                     row_writer.write_col(v)?
                                 }
+                                (DataType::Struct(_), DataValue::Struct(_)) => {
+                                    let serializer = data_type.create_serializer();
+                                    row_writer.write_col(serializer.serialize_value(&val)?)?
+                                }
                                 (_, v) => {
                                     return Err(ErrorCode::BadDataValueType(format!(
-                                        "Unsupported column type:{:?}",
-                                        v.data_type()
+                                        "Unsupported column type:{:?}, expected type in schema: {:?}",
+                                        v.data_type(), data_type
                                     )));
                                 }
                             }

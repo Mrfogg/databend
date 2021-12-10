@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -55,13 +55,16 @@ impl RaftState {
     /// 1. If `open` is `Some`,  it tries to open an existent RaftState if there is one.
     /// 2. If `create` is `Some`, it tries to initialize a new RaftState if there is not one.
     /// If none of them is `Some`, it is a programming error and will panic.
-    #[tracing::instrument(level = "info", skip(db))]
+    #[tracing::instrument(level = "info", skip(db,config,open,create), fields(config_id=%config.config_id))]
     pub async fn open_create(
         db: &sled::Db,
         config: &RaftConfig,
         open: Option<()>,
         create: Option<()>,
     ) -> common_exception::Result<RaftState> {
+        tracing::info!(?config);
+        tracing::info!("open: {:?}, create: {:?}", open, create);
+
         let tree_name = config.tree_name(TREE_RAFT_STATE);
         let inner = SledTree::open(db, &tree_name, config.is_sync())?;
 
@@ -148,10 +151,7 @@ impl RaftState {
     pub fn read_state_machine_id(&self) -> common_exception::Result<(u64, u64)> {
         let state = self.state();
         let smid = state.get(&RaftStateKey::StateMachineId)?;
-        let smid: (u64, u64) = match smid {
-            Some(v) => v.into(),
-            None => (0, 0),
-        };
+        let smid: (u64, u64) = smid.map_or((0, 0), |v| v.into());
         Ok(smid)
     }
 

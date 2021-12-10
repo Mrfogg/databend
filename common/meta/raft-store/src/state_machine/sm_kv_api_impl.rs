@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,10 @@ impl KVApi for StateMachine {
             value_meta: act.value_meta,
         };
 
-        let res = self.apply_cmd(&cmd).await?;
+        let res = self.sm_tree.txn(true, |t| {
+            let r = self.apply_cmd(&cmd, &t).unwrap();
+            Ok(r)
+        })?;
 
         match res {
             AppliedState::KV(x) => Ok(x),

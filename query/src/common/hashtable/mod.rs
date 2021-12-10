@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,9 @@
 pub use hash_table::HashTable;
 pub use hash_table_entity::HashTableEntity;
 pub use hash_table_entity::KeyValueEntity;
+pub use hash_table_grower::Grower;
 pub use hash_table_iter::HashTableIter;
 pub use hash_table_key::HashTableKeyable;
-
-#[cfg(test)]
-mod hash_table_grower_test;
 
 mod hash_table;
 #[allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]

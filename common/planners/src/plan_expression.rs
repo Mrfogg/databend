@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,10 @@ use lazy_static::lazy_static;
 use crate::PlanNode;
 
 lazy_static! {
-    static ref OP_SET: HashSet<&'static str> = ["database", "version",].iter().copied().collect();
+    static ref OP_SET: HashSet<&'static str> = ["database", "version", "current_user"]
+        .iter()
+        .copied()
+        .collect();
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -58,6 +61,8 @@ pub enum Expression {
 
     /// Column name.
     Column(String),
+    /// Qualified column name.
+    QualifiedColumn(Vec<String>),
 
     /// Constant value.
     /// Note: When literal represents a column, its column_name will not be None
@@ -264,6 +269,9 @@ impl Expression {
         match self {
             Expression::Alias(_, expr) => expr.to_data_type(input_schema),
             Expression::Column(s) => Ok(input_schema.field_with_name(s)?.data_type().clone()),
+            Expression::QualifiedColumn(_) => Err(ErrorCode::LogicalError(
+                "QualifiedColumn should be resolve in analyze.",
+            )),
             Expression::Literal { data_type, .. } => Ok(data_type.clone()),
             Expression::Subquery { query_plan, .. } => Ok(Self::to_subquery_type(query_plan)),
             Expression::ScalarSubquery { query_plan, .. } => {
@@ -369,6 +377,7 @@ impl fmt::Debug for Expression {
         match self {
             Expression::Alias(alias, v) => write!(f, "{:?} as {:#}", v, alias),
             Expression::Column(ref v) => write!(f, "{:#}", v),
+            Expression::QualifiedColumn(v) => write!(f, "{:?}", v.join(".")),
             Expression::Literal { ref value, .. } => write!(f, "{:#}", value),
             Expression::Subquery { name, .. } => write!(f, "subquery({})", name),
             Expression::ScalarSubquery { name, .. } => write!(f, "scalar subquery({})", name),

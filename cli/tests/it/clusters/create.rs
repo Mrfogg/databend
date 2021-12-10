@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -77,7 +77,7 @@ fn test_generate_local_meta_config() -> Result<()> {
             "local",
             "--meta-address",
             "0.0.0.0:7777",
-            "--log-level",
+            "--log_level",
             "DEBUG",
             "--version",
             "v0.4.111-nightly",
@@ -215,7 +215,7 @@ fn test_generate_local_query_config() -> Result<()> {
             "local",
             "--meta-address",
             "0.0.0.0:7777",
-            "--log-level",
+            "--log_level",
             "DEBUG",
             "--version",
             "v0.4.111-nightly",

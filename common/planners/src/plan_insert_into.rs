@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,25 +15,35 @@
 use common_datavalues::DataSchemaRef;
 use common_meta_types::MetaId;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct InsertIntoPlan {
-    pub db_name: String,
-    pub tbl_name: String,
-    pub tbl_id: MetaId,
-    pub schema: DataSchemaRef,
+use crate::Expression;
+use crate::PlanNode;
 
-    pub values_opt: Option<String>,
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub enum InsertInputSource {
+    SelectPlan(Box<PlanNode>),
+    Expressions(Vec<Vec<Expression>>),
+    StreamingWithFormat(String),
 }
 
-impl PartialEq for InsertIntoPlan {
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct InsertPlan {
+    pub database_name: String,
+    pub table_name: String,
+    pub table_id: MetaId,
+    pub schema: DataSchemaRef,
+    pub overwrite: bool,
+    pub source: InsertInputSource,
+}
+
+impl PartialEq for InsertPlan {
     fn eq(&self, other: &Self) -> bool {
-        self.db_name == other.db_name
-            && self.tbl_name == other.tbl_name
+        self.database_name == other.database_name
+            && self.table_name == other.table_name
             && self.schema == other.schema
     }
 }
 
-impl InsertIntoPlan {
+impl InsertPlan {
     pub fn schema(&self) -> DataSchemaRef {
         self.schema.clone()
     }

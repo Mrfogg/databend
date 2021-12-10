@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -252,7 +252,7 @@ impl<'a> PlanNodeIndentFormatDisplay<'a> {
         write!(f, "Create table {:}.{:}", plan.db, plan.table)?;
         write!(f, " {:},", plan.schema())?;
         // need engine to impl Display
-        write!(f, " engine: {},", plan.engine().to_string())?;
+        write!(f, " engine: {},", plan.engine())?;
         write!(f, " if_not_exists:{:},", plan.if_not_exists)?;
         write!(f, " option: {:?}", plan.options())
     }

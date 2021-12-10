@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -295,6 +295,18 @@ macro_rules! impl_dyn_array {
                 } else {
                     Err(ErrorCode::IllegalDataType(format!(
                         "cannot unpack Series of type {:?} into string",
+                        self.data_type(),
+                    )))
+                }
+            }
+
+            /// Unpack to DFArray of data_type struct
+            fn tuple(&self) -> Result<&DFStructArray> {
+                if matches!(self.0.data_type(), &DataType::Struct(_)) {
+                    unsafe { Ok(&*(self as *const dyn SeriesTrait as *const DFStructArray)) }
+                } else {
+                    Err(ErrorCode::IllegalDataType(format!(
+                        "cannot unpack Series of type {:?} into struct",
                         self.data_type(),
                     )))
                 }

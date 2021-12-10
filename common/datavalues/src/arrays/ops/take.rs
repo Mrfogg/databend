@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@
 
 use std::fmt::Debug;
 
-use common_arrow::arrow::array::*;
 use common_arrow::arrow::compute::take;
 use common_exception::ErrorCode;
 use common_exception::Result;

@@ -21,22 +21,25 @@ use common_datavalues::DataSchemaRef;
 use common_exception::ErrorCode;
 use common_exception::Result;
 
-use crate::servers::http::v1::query::execute_state::ExecuteState;
-use crate::servers::http::v1::query::execute_state::ExecuteStateRef;
-use crate::servers::http::v1::query::execute_state::HttpQueryRequest;
-use crate::servers::http::v1::query::result_data_manager::ResponseData;
-use crate::servers::http::v1::query::result_data_manager::ResultDataManager;
-use crate::servers::http::v1::query::result_data_manager::Wait;
-use crate::sessions::SessionManagerRef;
+use crate::servers::http::v1::query::ExecuteState;
+use crate::servers::http::v1::query::ExecuteStateName;
+use crate::servers::http::v1::query::Executor;
+use crate::servers::http::v1::query::ExecutorRef;
+use crate::servers::http::v1::query::HttpQueryRequest;
+use crate::servers::http::v1::query::ResponseData;
+use crate::servers::http::v1::query::ResultDataManager;
+use crate::servers::http::v1::query::Wait;
+use crate::sessions::SessionManager;
 
 pub struct ResponseInitialState {
     pub schema: Option<DataSchemaRef>,
 }
 
 pub struct ResponseState {
+    pub wall_time_ms: u128,
     pub progress: Option<ProgressValues>,
-    pub state: String,
-    pub error: Option<String>,
+    pub state: ExecuteStateName,
+    pub error: Option<ErrorCode>,
 }
 
 pub struct HttpQueryResponseInternal {
@@ -49,7 +52,7 @@ pub struct HttpQuery {
     pub(crate) id: String,
     #[allow(dead_code)]
     request: HttpQueryRequest,
-    state: ExecuteStateRef,
+    state: ExecutorRef,
     data: Arc<TokioMutex<ResultDataManager>>,
 }
 
@@ -59,7 +62,7 @@ impl HttpQuery {
     pub(crate) async fn try_create(
         id: String,
         request: HttpQueryRequest,
-        session_manager: &SessionManagerRef,
+        session_manager: &Arc<SessionManager>,
     ) -> Result<HttpQueryRef> {
         //TODO(youngsofun): support config/set channel size
         let (block_tx, block_rx) = mpsc::channel(10);
@@ -110,10 +113,13 @@ impl HttpQuery {
 
     pub async fn get_state(&self) -> ResponseState {
         let state = self.state.read().await;
+        let (exe_state, err) = state.state.extract();
+        let wall_time_ms = state.elapsed().as_millis();
         ResponseState {
+            wall_time_ms,
             progress: state.get_progress(),
-            state: state.get_state().to_string(),
-            error: None, // todo
+            state: exe_state,
+            error: err,
         }
     }
 
@@ -128,7 +134,12 @@ impl HttpQuery {
     }
 
     pub async fn kill(&self) {
-        ExecuteState::stop(&self.state, Err(ErrorCode::Ok("killed by http"))).await;
+        Executor::stop(
+            &self.state,
+            Err(ErrorCode::AbortedQuery("killed by http")),
+            true,
+        )
+        .await;
         self.data.lock().await.block_rx.close();
     }
 }

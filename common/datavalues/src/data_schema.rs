@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,6 +54,16 @@ impl DataSchema {
     #[inline]
     pub const fn fields(&self) -> &Vec<DataField> {
         &self.fields
+    }
+
+    #[inline]
+    pub fn has_field(&self, name: &str) -> bool {
+        for i in 0..self.fields.len() {
+            if self.fields[i].name() == name {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn fields_map(&self) -> BTreeMap<usize, DataField> {

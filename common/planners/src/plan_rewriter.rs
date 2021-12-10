@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,12 +26,15 @@ use crate::plan_subqueries_set::SubQueriesSetPlan;
 use crate::AggregatorFinalPlan;
 use crate::AggregatorPartialPlan;
 use crate::AlterUserPlan;
+use crate::CopyPlan;
 use crate::CreateDatabasePlan;
 use crate::CreateTablePlan;
 use crate::CreateUserPlan;
+use crate::CreateUserStagePlan;
 use crate::DescribeTablePlan;
 use crate::DropDatabasePlan;
 use crate::DropTablePlan;
+use crate::DropUserPlan;
 use crate::EmptyPlan;
 use crate::ExplainPlan;
 use crate::Expression;
@@ -40,7 +43,7 @@ use crate::Expressions;
 use crate::FilterPlan;
 use crate::GrantPrivilegePlan;
 use crate::HavingPlan;
-use crate::InsertIntoPlan;
+use crate::InsertPlan;
 use crate::KillPlan;
 use crate::LimitByPlan;
 use crate::LimitPlan;
@@ -49,9 +52,11 @@ use crate::PlanNode;
 use crate::ProjectionPlan;
 use crate::ReadDataSourcePlan;
 use crate::RemotePlan;
+use crate::RevokePrivilegePlan;
 use crate::SelectPlan;
 use crate::SettingPlan;
 use crate::ShowCreateTablePlan;
+use crate::SinkPlan;
 use crate::SortPlan;
 use crate::StagePlan;
 use crate::TruncateTablePlan;
@@ -102,14 +107,19 @@ pub trait PlanRewriter {
             PlanNode::DescribeTable(plan) => self.rewrite_describe_table(plan),
             PlanNode::DropTable(plan) => self.rewrite_drop_table(plan),
             PlanNode::DropDatabase(plan) => self.rewrite_drop_database(plan),
-            PlanNode::InsertInto(plan) => self.rewrite_insert_into(plan),
+            PlanNode::Insert(plan) => self.rewrite_insert_into(plan),
+            PlanNode::Copy(plan) => self.rewrite_copy(plan),
             PlanNode::ShowCreateTable(plan) => self.rewrite_show_create_table(plan),
             PlanNode::SubQueryExpression(plan) => self.rewrite_sub_queries_sets(plan),
             PlanNode::TruncateTable(plan) => self.rewrite_truncate_table(plan),
             PlanNode::Kill(plan) => self.rewrite_kill(plan),
             PlanNode::CreateUser(plan) => self.create_user(plan),
             PlanNode::AlterUser(plan) => self.alter_user(plan),
+            PlanNode::DropUser(plan) => self.drop_user(plan),
             PlanNode::GrantPrivilege(plan) => self.grant_privilege(plan),
+            PlanNode::RevokePrivilege(plan) => self.revoke_privilege(plan),
+            PlanNode::CreateUserStage(plan) => self.rewrite_create_stage(plan),
+            PlanNode::Sink(plan) => self.rewrite_sink(plan),
         }
     }
 
@@ -165,6 +175,7 @@ pub trait PlanRewriter {
             }),
             Expression::Wildcard => Ok(Expression::Wildcard),
             Expression::Column(column_name) => Ok(Expression::Column(column_name.clone())),
+            Expression::QualifiedColumn(v) => Ok(Expression::QualifiedColumn(v.clone())),
             Expression::Literal {
                 value,
                 column_name,
@@ -327,8 +338,12 @@ pub trait PlanRewriter {
         Ok(PlanNode::DropDatabase(plan.clone()))
     }
 
-    fn rewrite_insert_into(&mut self, plan: &InsertIntoPlan) -> Result<PlanNode> {
-        Ok(PlanNode::InsertInto(plan.clone()))
+    fn rewrite_insert_into(&mut self, plan: &InsertPlan) -> Result<PlanNode> {
+        Ok(PlanNode::Insert(plan.clone()))
+    }
+
+    fn rewrite_copy(&mut self, plan: &CopyPlan) -> Result<PlanNode> {
+        Ok(PlanNode::Copy(plan.clone()))
     }
 
     fn rewrite_show_create_table(&mut self, plan: &ShowCreateTablePlan) -> Result<PlanNode> {
@@ -351,8 +366,24 @@ pub trait PlanRewriter {
         Ok(PlanNode::AlterUser(plan.clone()))
     }
 
+    fn drop_user(&mut self, plan: &DropUserPlan) -> Result<PlanNode> {
+        Ok(PlanNode::DropUser(plan.clone()))
+    }
+
     fn grant_privilege(&mut self, plan: &GrantPrivilegePlan) -> Result<PlanNode> {
         Ok(PlanNode::GrantPrivilege(plan.clone()))
+    }
+
+    fn revoke_privilege(&mut self, plan: &RevokePrivilegePlan) -> Result<PlanNode> {
+        Ok(PlanNode::RevokePrivilege(plan.clone()))
+    }
+
+    fn rewrite_create_stage(&mut self, plan: &CreateUserStagePlan) -> Result<PlanNode> {
+        Ok(PlanNode::CreateUserStage(plan.clone()))
+    }
+
+    fn rewrite_sink(&mut self, plan: &SinkPlan) -> Result<PlanNode> {
+        Ok(PlanNode::Sink(plan.clone()))
     }
 }
 
@@ -523,6 +554,7 @@ impl RewriteHelper {
                 })
             }
             Expression::Wildcard
+            | Expression::QualifiedColumn(_)
             | Expression::Literal { .. }
             | Expression::Subquery { .. }
             | Expression::ScalarSubquery { .. }
@@ -576,6 +608,7 @@ impl RewriteHelper {
         Ok(match expr {
             Expression::Alias(_, expr) => vec![expr.as_ref().clone()],
             Expression::Column(_) => vec![],
+            Expression::QualifiedColumn(_) => vec![],
             Expression::Literal { .. } => vec![],
             Expression::Subquery { .. } => vec![],
             Expression::ScalarSubquery { .. } => vec![],
@@ -598,6 +631,7 @@ impl RewriteHelper {
         Ok(match expr {
             Expression::Alias(_, expr) => Self::expression_plan_columns(expr)?,
             Expression::Column(_) => vec![expr.clone()],
+            Expression::QualifiedColumn(_) => vec![expr.clone()],
             Expression::Literal { .. } => vec![],
             Expression::Subquery { .. } => vec![],
             Expression::ScalarSubquery { .. } => vec![],

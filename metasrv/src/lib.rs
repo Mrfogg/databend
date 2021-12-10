@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
 #![feature(backtrace)]
 
 #[allow(clippy::all)]
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), concat!("/meta.rs")));
-}
+pub mod proto;
 
 pub mod any_error;
 pub mod api;

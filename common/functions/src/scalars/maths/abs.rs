@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ use common_exception::Result;
 use crate::scalars::function::Function;
 use crate::scalars::function_factory::FunctionDescription;
 use crate::scalars::function_factory::FunctionFeatures;
+use crate::scalars::Monotonicity;
 
 #[derive(Clone)]
 pub struct AbsFunction {
@@ -36,7 +37,7 @@ impl AbsFunction {
 
     pub fn desc() -> FunctionDescription {
         FunctionDescription::creator(Box::new(Self::try_create))
-            .features(FunctionFeatures::default().deterministic())
+            .features(FunctionFeatures::default().deterministic().monotonicity())
     }
 }
 
@@ -68,7 +69,7 @@ impl Function for AbsFunction {
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        if is_numeric(&args[0]) || args[0] == DataType::String {
+        if args[0].is_numeric() || args[0] == DataType::String || args[0] == DataType::Null {
             Ok(match &args[0] {
                 DataType::Int8 => DataType::UInt8,
                 DataType::Int16 => DataType::UInt16,
@@ -101,7 +102,32 @@ impl Function for AbsFunction {
             DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
                 Ok(columns[0].column().clone())
             }
+            DataType::Null => Ok(columns[0].column().clone()),
             _ => unreachable!(),
+        }
+    }
+
+    fn get_monotonicity(&self, args: &[Monotonicity]) -> Result<Monotonicity> {
+        // for constant value, just return clone
+        if args[0].is_constant {
+            return Ok(args[0].clone());
+        }
+
+        // if either left boundary or right boundary is unknown, we don't known the monotonicity
+        if args[0].left.is_none() || args[0].right.is_none() {
+            return Ok(Monotonicity::default());
+        }
+
+        match args[0].compare_with_zero()? {
+            1 => {
+                // the range is >= 0, abs function do nothing
+                Ok(Monotonicity::create(true, args[0].is_positive, false))
+            }
+            -1 => {
+                // the range is <= 0, abs function flip the is_positive
+                Ok(Monotonicity::create(true, !args[0].is_positive, false))
+            }
+            _ => Ok(Monotonicity::default()),
         }
     }
 }

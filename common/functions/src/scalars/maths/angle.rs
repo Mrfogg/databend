@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,7 +63,7 @@ where T: AngleConvertFunction + Clone + Sync + Send + 'static
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        if is_numeric(&args[0]) || args[0] == DataType::String {
+        if args[0].is_numeric() || args[0] == DataType::String || args[0] == DataType::Null {
             Ok(DataType::Float64)
         } else {
             Err(ErrorCode::IllegalDataType(format!(

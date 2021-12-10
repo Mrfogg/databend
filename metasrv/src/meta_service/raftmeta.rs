@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,12 +26,14 @@ use common_base::tokio::sync::RwLockReadGuard;
 use common_base::tokio::task::JoinHandle;
 use common_exception::prelude::ErrorCode;
 use common_exception::prelude::ToErrorCode;
+use common_meta_api::MetaApi;
 use common_meta_raft_store::config::RaftConfig;
 use common_meta_raft_store::state_machine::AppliedState;
 use common_meta_raft_store::state_machine::StateMachine;
 use common_meta_raft_store::state_machine::TableLookupKey;
 use common_meta_raft_store::state_machine::TableLookupValue;
 use common_meta_types::Cmd;
+use common_meta_types::ListTableReq;
 use common_meta_types::LogEntry;
 use common_meta_types::Node;
 use common_meta_types::NodeId;
@@ -360,8 +362,9 @@ impl MetaNode {
 
     /// Start MetaNode in either `boot`, `single`, `join` or `open` mode,
     /// according to config.
-    #[tracing::instrument(level = "info")]
+    #[tracing::instrument(level = "info", skip(config))]
     pub async fn start(config: &RaftConfig) -> Result<Arc<MetaNode>, ErrorCode> {
+        tracing::info!(?config, "start()");
         let mn = Self::do_start(config).await?;
         tracing::info!("Done starting MetaNode: {:?}", config);
         Ok(mn)
@@ -475,6 +478,25 @@ impl MetaNode {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn get_nodes(&self) -> common_exception::Result<Vec<Node>> {
+        // inconsistent get: from local state machine
+        let sm = self.sto.state_machine.read().await;
+        sm.get_nodes()
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn get_voters(&self) -> common_exception::Result<Vec<Node>> {
+        // inconsistent get: from local state machine
+        self.sto.get_voters().await
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn get_non_voters(&self) -> common_exception::Result<Vec<Node>> {
+        // inconsistent get: from local state machine
+        self.sto.get_non_voters().await
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
     pub async fn handle_admin_req(&self, req: AdminRequest) -> Result<AdminResponse, MetaError> {
         let forward = req.forward_to_leader;
 
@@ -498,10 +520,7 @@ impl MetaNode {
             return Err(MetaError::ForwardToLeader(e));
         }
 
-        let leader_id = match e.leader {
-            Some(leader_id) => leader_id,
-            None => return Err(MetaError::ForwardToLeader(e)),
-        };
+        let leader_id = e.leader.ok_or(MetaError::ForwardToLeader(e))?;
 
         let mut r2 = req.clone();
         // Avoid infinite forward
@@ -572,11 +591,11 @@ impl MetaNode {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn get_tables(&self, db_name: &str) -> Result<Vec<TableInfo>, ErrorCode> {
+    pub async fn list_tables(&self, req: ListTableReq) -> Result<Vec<Arc<TableInfo>>, ErrorCode> {
         // inconsistent get: from local state machine
 
         let sm = self.sto.state_machine.read().await;
-        sm.get_tables(db_name)
+        sm.list_tables(req).await
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
@@ -584,7 +603,7 @@ impl MetaNode {
         // inconsistent get: from local state machine
 
         let sm = self.sto.state_machine.read().await;
-        sm.get_table_by_id(tid)
+        sm.get_table_meta_by_id(tid)
     }
 
     /// Submit a write request to the known leader. Returns the response after applying the request.

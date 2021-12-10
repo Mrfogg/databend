@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 mod builder;
 mod iterator;
+mod transform;
 
 pub use builder::*;
 use common_arrow::arrow::array::*;
@@ -23,6 +24,7 @@ use common_arrow::arrow::datatypes::DataType as ArrowDataType;
 use common_exception::ErrorCode;
 use common_exception::Result;
 pub use iterator::*;
+pub use transform::*;
 
 use crate::prelude::*;
 
@@ -84,12 +86,20 @@ impl DFStringArray {
 
     /// # Safety
     /// Note this doesn't do any bound checking, for performance reason.
+    #[inline]
     pub unsafe fn try_get(&self, index: usize) -> Result<DataValue> {
         let v = match self.array.is_null(index) {
             true => None,
             false => Some(self.array.value_unchecked(index).to_owned()),
         };
         Ok(v.into())
+    }
+
+    /// # Safety
+    /// Note this doesn't do any bound checking, for performance reason.
+    #[inline]
+    pub unsafe fn value_unchecked(&self, index: usize) -> &[u8] {
+        self.array.value_unchecked(index)
     }
 
     pub fn len(&self) -> usize {

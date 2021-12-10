@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use async_trait::async_trait;
-use common_base::tokio;
 use common_datablocks::DataBlock;
 use common_datavalues::DataSchemaRef;
 use common_exception::ErrorCode;
@@ -21,7 +20,8 @@ use common_exception::Result;
 use common_exception::ToErrorCode;
 use csv_async::AsyncReader;
 use csv_async::AsyncReaderBuilder;
-use tokio_stream::StreamExt;
+use futures::stream::StreamExt;
+use futures::AsyncRead;
 
 use crate::Source;
 
@@ -33,32 +33,37 @@ pub struct CsvSource<R> {
 }
 
 impl<R> CsvSource<R>
-where R: tokio::io::AsyncRead + Unpin + Send + Sync
+where R: AsyncRead + Unpin + Send
 {
-    pub fn new(reader: R, schema: DataSchemaRef, header: bool, block_size: usize) -> Self {
+    pub fn try_create(
+        reader: R,
+        schema: DataSchemaRef,
+        header: bool,
+        block_size: usize,
+    ) -> Result<Self> {
         let reader = AsyncReaderBuilder::new()
             .has_headers(header)
             .create_reader(reader);
 
-        Self {
+        Ok(Self {
             reader,
             block_size,
             schema,
             rows: 0,
-        }
+        })
     }
 }
 
 #[async_trait]
 impl<R> Source for CsvSource<R>
-where R: tokio::io::AsyncRead + Unpin + Send + Sync
+where R: AsyncRead + Unpin + Send
 {
     async fn read(&mut self) -> Result<Option<DataBlock>> {
         let mut desers = self
             .schema
             .fields()
             .iter()
-            .map(|f| f.data_type().create_serializer(self.block_size))
+            .map(|f| f.data_type().create_deserializer(self.block_size))
             .collect::<Result<Vec<_>>>()?;
 
         let mut rows = 0;
@@ -74,7 +79,7 @@ where R: tokio::io::AsyncRead + Unpin + Send + Sync
             }
             for (col, deser) in desers.iter_mut().enumerate() {
                 match record.get(col) {
-                    Some(bytes) => deser.de_text(bytes).unwrap(),
+                    Some(bytes) => deser.de_text(bytes)?,
                     None => deser.de_null(),
                 }
             }

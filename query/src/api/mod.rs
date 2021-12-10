@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,18 +17,16 @@
 pub use http_service::HttpService;
 pub use rpc::BroadcastAction;
 pub use rpc::CancelAction;
+pub use rpc::DatabendQueryFlightDispatcher;
+pub use rpc::DatabendQueryFlightService;
 pub use rpc::FlightAction;
 pub use rpc::FlightClient;
 pub use rpc::FlightTicket;
 pub use rpc::ShuffleAction;
+pub use rpc::StreamTicket;
 pub use rpc_service::RpcService;
 
-mod http;
+pub mod http;
 mod http_service;
 mod rpc;
 mod rpc_service;
-
-#[cfg(test)]
-mod http_service_test;
-#[cfg(test)]
-mod rpc_service_test;

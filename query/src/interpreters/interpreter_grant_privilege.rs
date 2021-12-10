@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,21 +20,19 @@ use common_streams::DataBlockStream;
 use common_streams::SendableDataBlockStream;
 use common_tracing::tracing;
 
+use crate::interpreters::interpreter_common::grant_object_exists_or_err;
 use crate::interpreters::Interpreter;
 use crate::interpreters::InterpreterPtr;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 
 #[derive(Debug)]
 pub struct GrantPrivilegeInterpreter {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
     plan: GrantPrivilegePlan,
 }
 
 impl GrantPrivilegeInterpreter {
-    pub fn try_create(
-        ctx: DatabendQueryContextRef,
-        plan: GrantPrivilegePlan,
-    ) -> Result<InterpreterPtr> {
+    pub fn try_create(ctx: Arc<QueryContext>, plan: GrantPrivilegePlan) -> Result<InterpreterPtr> {
         Ok(Arc::new(GrantPrivilegeInterpreter { ctx, plan }))
     }
 }
@@ -51,9 +49,15 @@ impl Interpreter for GrantPrivilegeInterpreter {
         _input_stream: Option<SendableDataBlockStream>,
     ) -> Result<SendableDataBlockStream> {
         let plan = self.plan.clone();
+
+        grant_object_exists_or_err(&self.ctx, &plan.on).await?;
+
+        // TODO: check user existence
+        // TODO: check privilege on granting on the grant object
+
         let user_mgr = self.ctx.get_sessions_manager().get_user_manager();
         user_mgr
-            .set_user_privileges(&plan.name, &plan.hostname, plan.priv_types)
+            .grant_user_privileges(&plan.name, &plan.hostname, plan.on, plan.priv_types)
             .await?;
 
         Ok(Box::pin(DataBlockStream::create(

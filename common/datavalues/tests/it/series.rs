@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -60,7 +60,6 @@ fn test_arithmetic_series() {
         Ok(())
     }
 
-    #[allow(dead_code)]
     struct ArrayTest {
         name: &'static str,
         args: Vec<Vec<Series>>,
@@ -278,6 +277,36 @@ fn test_arithmetic_series() {
                 "Code: 10, displayText = DataValue Error: Unsupported (String) modulo (String).",
             ],
         },
+        ArrayTest {
+            name: "int_div-passed",
+            args: vec![
+                vec![Series::new(vec!["xx"]), Series::new(vec!["yy"])],
+                vec![Series::new(vec![7]), Series::new(vec![0])],
+                vec![Series::new(vec![7.0]), Series::new(vec![0.0])],
+                vec![Series::new(vec![7.0]), Series::new(vec![0.0_f64])],
+                vec![Series::new(vec![7_u8]), Series::new(vec![2_u8])],
+                vec![
+                    Series::new(vec![10, 10, 10, 10]),
+                    Series::new(vec![1, 2, 3, 4]),
+                ],
+            ],
+            op: DataValueArithmeticOperator::IntDiv,
+
+            expect: vec![
+                Series::new(vec![""]),
+                Series::new(vec![""]),
+                Series::new(vec![""]),
+                Series::new(vec![""]),
+                Series::new(vec![3_u8]),
+                Series::new(vec![10, 5, 3, 2]),
+            ],
+            error: vec![
+                "Code: 10, displayText = DataValue Error: Unsupported (String) div (String).",
+                "Code: 6, displayText = Division by zero.",
+                "Code: 6, displayText = Division by zero.",
+                "Code: 6, displayText = Division by zero.",
+            ],
+        },
     ];
 
     for t in tests {
@@ -288,6 +317,7 @@ fn test_arithmetic_series() {
                 DataValueArithmeticOperator::Mul => &args[0] * &args[1],
                 DataValueArithmeticOperator::Div => &args[0] / &args[1],
                 DataValueArithmeticOperator::Modulo => &args[0] % &args[1],
+                DataValueArithmeticOperator::IntDiv => args[0].int_div(&args[1]),
             };
 
             match result {

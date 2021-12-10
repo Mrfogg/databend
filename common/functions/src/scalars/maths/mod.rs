@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,10 +16,16 @@ mod abs;
 mod angle;
 mod ceil;
 mod crc32;
+mod exp;
 mod floor;
 mod log;
 mod math;
 mod pi;
+mod pow;
+mod random;
+mod round;
+mod sign;
+mod sqrt;
 mod trigonometric;
 
 pub use abs::AbsFunction;
@@ -27,6 +33,7 @@ pub use angle::DegressFunction;
 pub use angle::RadiansFunction;
 pub use ceil::CeilFunction;
 pub use crc32::CRC32Function;
+pub use exp::ExpFunction;
 pub use floor::FloorFunction;
 pub use log::LnFunction;
 pub use log::Log10Function;
@@ -34,7 +41,17 @@ pub use log::Log2Function;
 pub use log::LogFunction;
 pub use math::MathsFunction;
 pub use pi::PiFunction;
+pub use pow::PowFunction;
+pub use random::RandomFunction;
+pub use round::RoundNumberFunction;
+pub use round::TruncNumberFunction;
+pub use sign::SignFunction;
+pub use sqrt::SqrtFunction;
 pub use trigonometric::Trigonometric;
+pub use trigonometric::TrigonometricAcosFunction;
+pub use trigonometric::TrigonometricAsinFunction;
+pub use trigonometric::TrigonometricAtan2Function;
+pub use trigonometric::TrigonometricAtanFunction;
 pub use trigonometric::TrigonometricCosFunction;
 pub use trigonometric::TrigonometricCotFunction;
 pub use trigonometric::TrigonometricSinFunction;

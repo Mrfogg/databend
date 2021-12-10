@@ -25,22 +25,41 @@ pub enum AddResult<T> {
 
 /// `Change` describes a state change, including the states before and after a change.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, derive_more::From)]
-pub struct Change<T>
-where T: Clone + PartialEq
+pub struct Change<T, ID = u64>
+where
+    ID: Clone + PartialEq,
+    T: Clone + PartialEq,
 {
+    /// identity of the resouce that is changed.
+    pub ident: Option<ID>,
     pub prev: Option<SeqV<T>>,
     pub result: Option<SeqV<T>>,
 }
 
-impl<T> Change<T>
-where T: Clone + PartialEq + std::fmt::Debug
+impl<T, ID> Change<T, ID>
+where
+    ID: Clone + PartialEq + std::fmt::Debug,
+    T: Clone + PartialEq + std::fmt::Debug,
 {
     pub fn new(prev: Option<SeqV<T>>, result: Option<SeqV<T>>) -> Self {
-        Change { prev, result }
+        Change {
+            ident: None,
+            prev,
+            result,
+        }
     }
 
-    pub fn new_nochange(prev: Option<SeqV<T>>) -> Self {
+    pub fn new_with_id(id: ID, prev: Option<SeqV<T>>, result: Option<SeqV<T>>) -> Self {
         Change {
+            ident: Some(id),
+            prev,
+            result,
+        }
+    }
+
+    pub fn nochange_with_id(id: ID, prev: Option<SeqV<T>>) -> Self {
+        Change {
+            ident: Some(id),
             prev: prev.clone(),
             result: prev,
         }
@@ -48,8 +67,8 @@ where T: Clone + PartialEq + std::fmt::Debug
 
     /// Maps `Option<SeqV<T>>` to `Option<U>` for `prev` and `result`.
     pub fn map<F, U>(self, f: F) -> (Option<U>, Option<U>)
-    where F: Fn(SeqV<T>) -> U {
-        (self.prev.map(|x| f(x)), self.result.map(|x| f(x)))
+    where F: Fn(SeqV<T>) -> U + Copy {
+        (self.prev.map(f), self.result.map(f))
     }
 
     /// Extract `prev` and `result`.

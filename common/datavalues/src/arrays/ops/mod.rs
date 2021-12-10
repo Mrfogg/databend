@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 mod agg;
 mod apply;
+mod arity;
 mod boolean;
 mod cast;
 mod contain;
@@ -30,6 +31,7 @@ mod vec_hash;
 
 pub use agg::*;
 pub use apply::*;
+pub use arity::*;
 pub use boolean::*;
 pub use cast::*;
 pub use contain::*;

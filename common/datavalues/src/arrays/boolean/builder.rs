@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,5 +66,15 @@ impl NewDataArray<bool> for DFBooleanArray {
     /// Create a new DataArray from an iterator.
     fn new_from_iter(it: impl Iterator<Item = bool>) -> DFBooleanArray {
         it.collect()
+    }
+
+    fn new_from_iter_validity(
+        it: impl Iterator<Item = bool>,
+        validity: Option<common_arrow::arrow::bitmap::Bitmap>,
+    ) -> Self {
+        let mut array: DFBooleanArray = it.collect();
+        array.array = array.inner().with_validity(validity);
+
+        array
     }
 }

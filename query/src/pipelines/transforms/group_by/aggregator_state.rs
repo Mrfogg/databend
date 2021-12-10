@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -163,6 +163,7 @@ pub struct LongerFixedKeysAggregatorState<T: HashTableKeyable> {
 // TODO:(Winter) Hack:
 // The *mut KeyValueEntity needs to be used externally, but we can ensure that *mut KeyValueEntity
 // will not be used multiple async, so KeyValueEntity is Send
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl<T: HashTableKeyable + Send> Send for LongerFixedKeysAggregatorState<T> {}
 
 // TODO:(Winter) Hack:
@@ -218,6 +219,7 @@ pub struct SerializedKeysAggregatorState {
 // TODO:(Winter) Hack:
 // The *mut KeyValueEntity needs to be used externally, but we can ensure that *mut KeyValueEntity
 // will not be used multiple async, so KeyValueEntity is Send
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl Send for SerializedKeysAggregatorState {}
 
 // TODO:(Winter) Hack:

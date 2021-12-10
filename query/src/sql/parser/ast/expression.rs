@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -127,6 +127,7 @@ pub enum BinaryOperator {
     Plus,
     Minus,
     Multiply,
+    Div,
     Divide,
     Modulo,
     StringConcat,
@@ -183,6 +184,9 @@ impl Display for BinaryOperator {
             }
             BinaryOperator::Multiply => {
                 write!(f, "*")
+            }
+            BinaryOperator::Div => {
+                write!(f, "DIV")
             }
             BinaryOperator::Divide => {
                 write!(f, "/")

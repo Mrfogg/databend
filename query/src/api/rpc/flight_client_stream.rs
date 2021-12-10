@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,8 +53,10 @@ impl FlightDataStream {
                     }
 
                     let arrow_schema = Arc::new(schema.to_arrow());
-                    Ok(deserialize_batch(&flight_data, arrow_schema, true, &[])
-                        .map(create_data_block)?)
+                    Ok(
+                        deserialize_batch(&flight_data, arrow_schema, true, &Default::default())
+                            .map(create_data_block)?,
+                    )
                 }
             }
         })
@@ -81,10 +83,13 @@ impl FlightDataStream {
                     DataBlock::create(Arc::new(schema), columns)
                 }
 
-                Ok(
-                    deserialize_batch(&flight_data, Arc::new(schema_ref.to_arrow()), true, &[])
-                        .map(create_data_block)?,
+                Ok(deserialize_batch(
+                    &flight_data,
+                    Arc::new(schema_ref.to_arrow()),
+                    true,
+                    &Default::default(),
                 )
+                .map(create_data_block)?)
             }
         })
     }

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,6 +68,18 @@ fn test_display() {
                     ValueRef::Int32(3)
                 ])
             )
+        )
+    );
+
+    assert_eq!(
+        "(1, text, 2.3)".to_string(),
+        format!(
+            "{}",
+            ValueRef::Tuple(Arc::new(vec![
+                ValueRef::Int32(1),
+                ValueRef::String(b"text"),
+                ValueRef::Float64(2.3)
+            ]))
         )
     );
 
@@ -145,6 +157,19 @@ fn test_value_from_ref() {
             SqlType::Int32.into(),
             Arc::new(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
         )
+    );
+
+    assert_eq!(
+        Value::from(ValueRef::Tuple(Arc::new(vec![
+            ValueRef::Int32(1),
+            ValueRef::String(b"text"),
+            ValueRef::Float64(2.3)
+        ]))),
+        Value::Tuple(Arc::new(vec![
+            Value::Int32(1),
+            Value::String(Arc::new(b"text".to_vec())),
+            Value::Float64(2.3)
+        ]))
     )
 }
 
@@ -209,4 +234,17 @@ fn test_get_sql_type() {
         ))))),
         SqlType::Nullable(SqlType::Int8.into())
     );
+
+    assert_eq!(
+        SqlType::from(ValueRef::Tuple(Arc::new(vec![
+            ValueRef::Int32(1),
+            ValueRef::String(b"text"),
+            ValueRef::Float64(2.3)
+        ]))),
+        SqlType::Tuple(vec![
+            SqlType::Int32.into(),
+            SqlType::String.into(),
+            SqlType::Float64.into()
+        ])
+    )
 }

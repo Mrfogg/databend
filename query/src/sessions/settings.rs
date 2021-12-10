@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ use common_exception::ErrorCode;
 use common_exception::Result;
 use common_infallible::RwLock;
 use common_macros::MallocSizeOf;
-#[derive(Debug, MallocSizeOf)]
+#[derive(Clone, Debug, MallocSizeOf)]
 pub struct Settings {
     inner: SettingsBase,
 }
@@ -53,7 +53,7 @@ impl Settings {
     }
 }
 
-#[derive(Debug, Clone, MallocSizeOf)]
+#[derive(Clone, Debug, MallocSizeOf)]
 pub struct SettingsBase {
     // DataValue is of DataValue::Struct([name, value, default_value, description])
     settings: Arc<RwLock<HashMap<&'static str, DataValue>>>,

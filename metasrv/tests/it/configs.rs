@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 use databend_meta::configs::Config;
 
 #[test]
-fn test_fuse_commit_version() -> anyhow::Result<()> {
+fn test_bin_commit_version() -> anyhow::Result<()> {
     let v = &databend_meta::configs::DATABEND_COMMIT_VERSION;
     assert!(v.len() > 0);
     Ok(())

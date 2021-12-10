@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ fn package() -> Result<(), CliError> {
     fusectl()
         .arg("package")
         .arg("fetch")
-        .arg("v0.4.79-nightly")
+        .arg("v0.5.38-nightly")
         .arg("--databend_dir")
         .arg(tmp_dir.path().to_str().unwrap())
         .arg("--group")
@@ -90,9 +90,9 @@ fn package() -> Result<(), CliError> {
         .assert()
         .success()
         .stdout(contains_all!(
-            "[ok] Tag v0.4.79-nightly",
+            "[ok] Tag v0.5.38-nightly",
             "[ok] Download",
-            "[ok] Package switch to v0.4.79-nightly"
+            "[ok] Package switch to v0.5.38-nightly"
         ))
         .stderr("");
 
@@ -106,21 +106,21 @@ fn package() -> Result<(), CliError> {
         .arg("integration")
         .assert()
         .success()
-        .stdout(contains_all!("Version", "v0.4.79-nightly"))
+        .stdout(contains_all!("Version", "v0.5.38-nightly"))
         .stderr("");
 
     // switch
     fusectl()
         .arg("package")
         .arg("switch")
-        .arg("v0.4.79-nightly")
+        .arg("v0.5.38-nightly")
         .arg("--databend_dir")
         .arg(tmp_dir.path().to_str().unwrap())
         .arg("--group")
         .arg("integration")
         .assert()
         .success()
-        .stdout(contains_all!("[ok] Package switch to v0.4.79-nightly"))
+        .stdout(contains_all!("[ok] Package switch to v0.5.38-nightly"))
         .stderr("");
     tmp_dir.close()?;
     Ok(())

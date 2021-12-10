@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use common_base::RuntimeTracker;
 use common_macros::databend_main;
+use common_meta_embedded::MetaEmbedded;
 use common_metrics::init_default_metrics_recorder;
 use common_tracing::init_tracing_with_file;
 use common_tracing::set_panic_hook;
@@ -46,6 +47,11 @@ async fn main(_global_tracker: Arc<RuntimeTracker>) -> common_exception::Result<
     // Prefer to use env variable in cloud native deployment
     // Override configs based on env variables
     conf = Config::load_from_env(&conf)?;
+    conf.initial_dir()?;
+
+    if conf.meta.meta_address.is_empty() {
+        MetaEmbedded::init_global_meta_store(conf.meta.meta_embedded_dir.clone()).await?;
+    }
 
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or(conf.log.log_level.to_lowercase().as_str()),
@@ -110,7 +116,11 @@ async fn main(_global_tracker: Arc<RuntimeTracker>) -> common_exception::Result<
         let listening = srv.start(listening.parse()?).await?;
         shutdown_handle.add_service(srv);
 
-        info!("Http handler listening on {}", listening);
+        let http_handler_usage = HttpHandler::usage(listening);
+        info!(
+            "Http handler listening on {} {}",
+            listening, http_handler_usage
+        );
     }
 
     // Metric API service.

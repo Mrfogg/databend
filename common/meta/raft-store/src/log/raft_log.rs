@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,8 +35,10 @@ pub struct RaftLog {
 
 impl RaftLog {
     /// Open RaftLog
-    #[tracing::instrument(level = "info", skip(db))]
+    #[tracing::instrument(level = "info", skip(db,config), fields(config_id=%config.config_id))]
     pub async fn open(db: &sled::Db, config: &RaftConfig) -> common_exception::Result<RaftLog> {
+        tracing::info!(?config);
+
         let tree_name = config.tree_name(TREE_RAFT_LOG);
         let inner = SledTree::open(db, &tree_name, config.is_sync())?;
         let rl = RaftLog { inner };

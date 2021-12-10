@@ -11,6 +11,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PROTOC: protoc
 
 jobs:
   test:
@@ -23,14 +24,13 @@ jobs:
           # Linux
           - { os: ubuntu-latest, toolchain: stable, target: x86_64-unknown-linux-gnu, cross: false }
           # Macos
-          - { os: macos-latest, toolchain: stable, target: x86_64-apple-darwin, cross: false }
+          - { os: macos-11, toolchain: stable, target: x86_64-apple-darwin, cross: false }
     steps:
       - name: Checkout source code
         uses: actions/checkout@v2
 
       - name: Rust setup
-        run: |
-          bash ./scripts/setup/dev_setup.sh
+        run: bash ./scripts/setup/dev_setup.sh
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v1

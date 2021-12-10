@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use common_arrow::arrow::array::Array;
-use common_arrow::arrow::compute::concat;
+use common_arrow::arrow::compute::concatenate;
 use common_exception::Result;
 
 use crate::prelude::*;
@@ -31,7 +31,7 @@ impl DataColumnCommon {
 
         let dyn_arrays: Vec<&dyn Array> = arrays.iter().map(|arr| arr.as_ref()).collect();
 
-        let array: Arc<dyn Array> = Arc::from(concat::concatenate(&dyn_arrays)?);
+        let array: Arc<dyn Array> = Arc::from(concatenate::concatenate(&dyn_arrays)?);
         Ok(array.into())
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ use common_clickhouse_srv::CHContext;
 use common_datablocks::DataBlock;
 use common_datavalues::DataSchemaRef;
 use common_exception::Result;
-use common_planners::InsertIntoPlan;
+use common_planners::InsertPlan;
 use common_planners::PlanNode;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Receiver;
@@ -40,7 +40,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::writers::from_clickhouse_block;
 use crate::interpreters::InterpreterFactory;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 use crate::sessions::SessionRef;
 use crate::sql::PlanParser;
 
@@ -64,10 +64,10 @@ impl InteractiveWorkerBase {
         let ctx = session.create_context().await?;
         ctx.attach_query_str(query);
 
-        let plan = PlanParser::create(ctx.clone()).build_from_sql(query)?;
+        let plan = PlanParser::parse(query, ctx.clone()).await?;
 
         match plan {
-            PlanNode::InsertInto(insert) => Self::process_insert_query(insert, ch_ctx, ctx).await,
+            PlanNode::Insert(insert) => Self::process_insert_query(insert, ch_ctx, ctx).await,
             _ => {
                 let start = Instant::now();
                 let interpreter = InterpreterFactory::get(ctx.clone(), plan)?;
@@ -109,9 +109,9 @@ impl InteractiveWorkerBase {
     }
 
     pub async fn process_insert_query(
-        insert: InsertIntoPlan,
+        insert: InsertPlan,
         ch_ctx: &mut CHContext,
-        ctx: DatabendQueryContextRef,
+        ctx: Arc<QueryContext>,
     ) -> Result<Receiver<BlockItem>> {
         let sample_block = DataBlock::empty_with_schema(insert.schema());
         let (sender, rec) = channel(4);
@@ -124,7 +124,7 @@ impl InteractiveWorkerBase {
             schema: sc,
         };
 
-        let interpreter = InterpreterFactory::get(ctx.clone(), PlanNode::InsertInto(insert))?;
+        let interpreter = InterpreterFactory::get(ctx.clone(), PlanNode::Insert(insert))?;
         let name = interpreter.name().to_string();
 
         let (mut tx, rx) = mpsc::channel(20);

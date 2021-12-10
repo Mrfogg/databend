@@ -3,6 +3,7 @@
 
 # visual studio code files
 .vscode
+.dir-locals.el
 
 # Rust
 target/*
@@ -15,10 +16,6 @@ cli/e2e/bendctl
 .DS_Store
 .AppleDouble
 .LSOverride
-
-### Linux(include WSL) ###
-
-### Windows ###
 
 # profile
 flamegraph.*
@@ -35,6 +32,9 @@ _local_fs/*
 _meta*/*
 stateless_test_data/*
 **/_logs*/*
+_data/
+_tmp/*
+tls/certs/*
 
 # for tests in mac
 *.stderr-e
@@ -43,5 +43,6 @@ tests/perfs/*-result.json
 
 # python
 venv/
+*.pyc
+__pycache__/*
 
-tls/certs/*

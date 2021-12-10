@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ unsafe fn index_of_unchecked<T>(slice: &[T], item: &T) -> usize {
     (item as *const _ as usize - slice.as_ptr() as usize) / std::mem::size_of::<T>()
 }
 
+#[allow(dead_code)]
 fn index_of<T>(slice: &[T], item: &T) -> Option<usize> {
     debug_assert!(std::mem::size_of::<T>() > 0);
     let ptr = item as *const T;

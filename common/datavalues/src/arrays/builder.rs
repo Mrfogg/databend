@@ -1,4 +1,6 @@
-// Copyright 2020 Datafuse Labs.
+use common_arrow::arrow::bitmap::Bitmap;
+
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,10 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use common_exception::Result;
-
-use crate::prelude::*;
-
 pub trait ArrayBuilder<N, Array> {
     fn append_value(&mut self, val: N);
     fn append_null(&mut self);
@@ -28,15 +26,6 @@ pub trait ArrayBuilder<N, Array> {
     fn finish(&mut self) -> Array;
 }
 
-pub trait ArrayDeserializer {
-    fn de(&mut self, reader: &mut &[u8]) -> Result<()>;
-    fn de_batch(&mut self, reader: &[u8], step: usize, rows: usize) -> Result<()>;
-    /// If error occurrs, append a null by default
-    fn de_text(&mut self, reader: &[u8]);
-    fn de_null(&mut self);
-    fn finish_to_series(&mut self) -> Series;
-}
-
 pub trait NewDataArray<N> {
     fn new_from_slice(v: &[N]) -> Self;
     fn new_from_opt_slice(opt_v: &[Option<N>]) -> Self;
@@ -46,4 +35,5 @@ pub trait NewDataArray<N> {
 
     /// Create a new DataArray from an iterator.
     fn new_from_iter(it: impl Iterator<Item = N>) -> Self;
+    fn new_from_iter_validity(it: impl Iterator<Item = N>, validity: Option<Bitmap>) -> Self;
 }

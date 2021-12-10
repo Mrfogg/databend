@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -104,12 +104,20 @@ impl ClickHouseSession for InteractiveWorker {
         // TODO: push async up to clickhouse server lib
         futures::executor::block_on(async move {
             // TODO: use get_users and check client address
-            let res = match user_manager.get_user(user, "%").await {
-                Ok(user_info) => user_manager.auth_user(user_info, info).await,
-                Err(err) => Err(err),
+            let (authed, user_info) = match user_manager.get_user(user, "%").await {
+                Ok(user_info) => (
+                    user_manager.auth_user(user_info.clone(), info).await,
+                    Some(user_info),
+                ),
+                Err(err) => (Err(err), None),
             };
-            match res {
-                Ok(res) => res,
+            match authed {
+                Ok(res) => {
+                    if res {
+                        self.session.set_current_user(user_info.unwrap());
+                    }
+                    res
+                }
                 Err(failure) => {
                     log::error!(
                         "ClickHouse handler authenticate failed, \

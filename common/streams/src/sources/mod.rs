@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,11 +14,14 @@
 
 mod source;
 mod source_csv;
+mod source_factory;
 mod source_parquet;
 mod source_values;
 
 pub use source::FormatSettings;
 pub use source::Source;
 pub use source_csv::CsvSource;
+pub use source_factory::SourceFactory;
+pub use source_factory::SourceParams;
 pub use source_parquet::ParquetSource;
 pub use source_values::ValueSource;

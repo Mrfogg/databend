@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,36 +15,39 @@
 use std::sync::Arc;
 
 use common_datavalues::DataSchemaRef;
-use common_exception::ErrorCode;
-use common_exception::Result;
 
 use crate::plan_broadcast::BroadcastPlan;
 use crate::plan_subqueries_set::SubQueriesSetPlan;
+use crate::plan_user_stage_create::CreateUserStagePlan;
 use crate::AggregatorFinalPlan;
 use crate::AggregatorPartialPlan;
 use crate::AlterUserPlan;
+use crate::CopyPlan;
 use crate::CreateDatabasePlan;
 use crate::CreateTablePlan;
 use crate::CreateUserPlan;
 use crate::DescribeTablePlan;
 use crate::DropDatabasePlan;
 use crate::DropTablePlan;
+use crate::DropUserPlan;
 use crate::EmptyPlan;
 use crate::ExplainPlan;
 use crate::ExpressionPlan;
 use crate::FilterPlan;
 use crate::GrantPrivilegePlan;
 use crate::HavingPlan;
-use crate::InsertIntoPlan;
+use crate::InsertPlan;
 use crate::KillPlan;
 use crate::LimitByPlan;
 use crate::LimitPlan;
 use crate::ProjectionPlan;
 use crate::ReadDataSourcePlan;
 use crate::RemotePlan;
+use crate::RevokePrivilegePlan;
 use crate::SelectPlan;
 use crate::SettingPlan;
 use crate::ShowCreateTablePlan;
+use crate::SinkPlan;
 use crate::SortPlan;
 use crate::StagePlan;
 use crate::TruncateTablePlan;
@@ -67,6 +70,7 @@ pub enum PlanNode {
     Limit(LimitPlan),
     LimitBy(LimitByPlan),
     ReadSource(ReadDataSourcePlan),
+    Sink(SinkPlan),
     Select(SelectPlan),
     Explain(ExplainPlan),
     CreateDatabase(CreateDatabasePlan),
@@ -77,13 +81,17 @@ pub enum PlanNode {
     TruncateTable(TruncateTablePlan),
     UseDatabase(UseDatabasePlan),
     SetVariable(SettingPlan),
-    InsertInto(InsertIntoPlan),
+    Insert(InsertPlan),
+    Copy(CopyPlan),
     ShowCreateTable(ShowCreateTablePlan),
     SubQueryExpression(SubQueriesSetPlan),
     Kill(KillPlan),
     CreateUser(CreateUserPlan),
     AlterUser(AlterUserPlan),
+    DropUser(DropUserPlan),
     GrantPrivilege(GrantPrivilegePlan),
+    RevokePrivilege(RevokePrivilegePlan),
+    CreateUserStage(CreateUserStagePlan),
 }
 
 impl PlanNode {
@@ -114,13 +122,18 @@ impl PlanNode {
             PlanNode::SetVariable(v) => v.schema(),
             PlanNode::Sort(v) => v.schema(),
             PlanNode::UseDatabase(v) => v.schema(),
-            PlanNode::InsertInto(v) => v.schema(),
+            PlanNode::Insert(v) => v.schema(),
             PlanNode::ShowCreateTable(v) => v.schema(),
             PlanNode::SubQueryExpression(v) => v.schema(),
             PlanNode::Kill(v) => v.schema(),
             PlanNode::CreateUser(v) => v.schema(),
             PlanNode::AlterUser(v) => v.schema(),
+            PlanNode::DropUser(v) => v.schema(),
             PlanNode::GrantPrivilege(v) => v.schema(),
+            PlanNode::RevokePrivilege(v) => v.schema(),
+            PlanNode::Sink(v) => v.schema(),
+            PlanNode::Copy(v) => v.schema(),
+            PlanNode::CreateUserStage(v) => v.schema(),
         }
     }
 
@@ -150,13 +163,18 @@ impl PlanNode {
             PlanNode::SetVariable(_) => "SetVariablePlan",
             PlanNode::Sort(_) => "SortPlan",
             PlanNode::UseDatabase(_) => "UseDatabasePlan",
-            PlanNode::InsertInto(_) => "InsertIntoPlan",
+            PlanNode::Insert(_) => "InsertPlan",
             PlanNode::ShowCreateTable(_) => "ShowCreateTablePlan",
             PlanNode::SubQueryExpression(_) => "CreateSubQueriesSets",
             PlanNode::Kill(_) => "KillQuery",
             PlanNode::CreateUser(_) => "CreateUser",
             PlanNode::AlterUser(_) => "AlterUser",
+            PlanNode::DropUser(_) => "DropUser",
             PlanNode::GrantPrivilege(_) => "GrantPrivilegePlan",
+            PlanNode::RevokePrivilege(_) => "RevokePrivilegePlan",
+            PlanNode::Sink(_) => "SinkPlan",
+            PlanNode::Copy(_) => "CopyPlan",
+            PlanNode::CreateUserStage(_) => "CreateUserStagePlan",
         }
     }
 
@@ -175,6 +193,7 @@ impl PlanNode {
             PlanNode::Select(v) => vec![v.input.clone()],
             PlanNode::Sort(v) => vec![v.input.clone()],
             PlanNode::SubQueryExpression(v) => v.get_inputs(),
+            PlanNode::Sink(v) => vec![v.input.clone()],
 
             _ => vec![],
         }
@@ -182,35 +201,5 @@ impl PlanNode {
 
     pub fn input(&self, n: usize) -> Arc<PlanNode> {
         self.inputs()[n].clone()
-    }
-
-    pub fn set_inputs(&mut self, inputs: Vec<&PlanNode>) -> Result<()> {
-        if inputs.is_empty() {
-            return Result::Err(ErrorCode::BadPlanInputs("Inputs must not be empty"));
-        }
-
-        match self {
-            PlanNode::Stage(v) => v.set_input(inputs[0]),
-            PlanNode::Broadcast(v) => v.set_input(inputs[0]),
-            PlanNode::Projection(v) => v.set_input(inputs[0]),
-            PlanNode::Expression(v) => v.set_input(inputs[0]),
-            PlanNode::AggregatorPartial(v) => v.set_input(inputs[0]),
-            PlanNode::AggregatorFinal(v) => v.set_input(inputs[0]),
-            PlanNode::Filter(v) => v.set_input(inputs[0]),
-            PlanNode::Having(v) => v.set_input(inputs[0]),
-            PlanNode::Limit(v) => v.set_input(inputs[0]),
-            PlanNode::Explain(v) => v.set_input(inputs[0]),
-            PlanNode::Select(v) => v.set_input(inputs[0]),
-            PlanNode::Sort(v) => v.set_input(inputs[0]),
-            PlanNode::SubQueryExpression(v) => v.set_inputs(inputs),
-            _ => {
-                return Err(ErrorCode::UnImplement(format!(
-                    "UnImplement set_inputs for {:?}",
-                    self
-                )));
-            }
-        }
-
-        Ok(())
     }
 }

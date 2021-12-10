@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,6 +39,12 @@ pub fn expand_wildcard(expr: &Expression, schema: &DataSchemaRef) -> Vec<Express
 /// first), with duplicates omitted.
 pub fn find_aggregate_exprs(exprs: &[Expression]) -> Vec<Expression> {
     find_exprs_in_exprs(exprs, &|nest_exprs| {
+        matches!(nest_exprs, Expression::AggregateFunction { .. })
+    })
+}
+
+pub fn find_aggregate_exprs_in_expr(expr: &Expression) -> Vec<Expression> {
+    find_exprs_in_expr(expr, &|nest_exprs| {
         matches!(nest_exprs, Expression::AggregateFunction { .. })
     })
 }
@@ -150,7 +156,7 @@ pub fn expr_as_column_expr(expr: &Expression) -> Result<Expression> {
 
 /// Rebuilds an `expr` as a projection on top of a collection of `Expression`'s.
 ///
-/// For example, the Expressionession `a + b < 1` would require, as input, the 2
+/// For example, the Expression `a + b < 1` would require, as input, the 2
 /// individual columns, `a` and `b`. But, if the base exprs already
 /// contain the `a + b` result, then that may be used in lieu of the `a` and
 /// `b` columns.
@@ -317,6 +323,7 @@ where F: Fn(&Expression) -> Result<Option<Expression>> {
             }),
 
             Expression::Column(_)
+            | Expression::QualifiedColumn(_)
             | Expression::Literal { .. }
             | Expression::Subquery { .. }
             | Expression::ScalarSubquery { .. } => Ok(expr.clone()),

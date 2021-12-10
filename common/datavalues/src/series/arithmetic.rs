@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -92,6 +92,42 @@ impl Neg for &Series {
     fn neg(self) -> Self::Output {
         let lhs = coerce_unary_op(&DataValueArithmeticOperator::Minus, self)?;
         lhs.negative()
+    }
+}
+
+impl IntDiv for &Series {
+    type Output = Result<Series>;
+
+    fn int_div(self, rhs: Self) -> Self::Output {
+        let (lhs, rhs) = coerce_lhs_rhs(&DataValueArithmeticOperator::IntDiv, self, rhs)?;
+        match &rhs
+            .cast_with_type(&DataType::Float64)?
+            .f64()?
+            .into_iter()
+            .any(|v| v == Some(&0_f64))
+        {
+            true => Err(ErrorCode::BadArguments("Division by zero")),
+            false => {
+                let res = lhs.divide(&rhs)?;
+                match &res.data_type() {
+                    DataType::Float32 => {
+                        if lhs.data_type().is_floating() {
+                            res.cast_with_type(&DataType::Int32)
+                        } else {
+                            res.cast_with_type(lhs.data_type())
+                        }
+                    }
+                    DataType::Float64 => {
+                        if lhs.data_type().is_floating() {
+                            res.cast_with_type(&DataType::Int64)
+                        } else {
+                            res.cast_with_type(lhs.data_type())
+                        }
+                    }
+                    _ => Ok(res),
+                }
+            }
+        }
     }
 }
 

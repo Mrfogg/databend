@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -191,6 +191,18 @@ fn test_display() {
                 SqlType::Int32.into(),
                 Arc::new(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
             )
+        )
+    );
+
+    assert_eq!(
+        "(1, text, 2.3)".to_string(),
+        format!(
+            "{}",
+            Value::Tuple(Arc::new(vec![
+                Value::Int32(1),
+                Value::String(Arc::new(b"text".to_vec())),
+                Value::Float64(2.3)
+            ]))
         )
     );
 }

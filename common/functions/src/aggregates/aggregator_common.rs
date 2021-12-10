@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,7 +47,6 @@ pub fn assert_binary_arguments<D: Display>(name: D, actual: usize) -> Result<()>
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn assert_arguments<D: Display>(name: D, actual: usize, expected: usize) -> Result<()> {
     if actual != expected {
         return Err(ErrorCode::NumberArgumentsNotMatch(format!(

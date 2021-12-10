@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,10 @@ use common_exception::Result;
 
 use crate::scalars::function_factory::FunctionDescription;
 use crate::scalars::function_factory::FunctionFeatures;
+use crate::scalars::CastFunction;
 use crate::scalars::Function;
+use crate::scalars::Monotonicity;
+use crate::scalars::RoundFunction;
 
 #[derive(Clone, Debug)]
 pub struct NumberFunction<T, R> {
@@ -41,6 +44,15 @@ pub trait NumberResultFunction<R> {
     fn return_type() -> Result<DataType>;
     fn to_number(_value: DateTime<Utc>) -> R;
     fn to_constant_value(_value: DateTime<Utc>) -> DataValue;
+    // Used to check the monotonicity of the function.
+    // For example, ToDayOfYear is monotonous only when the time range is the same year.
+    // So we can use ToStartOfYearFunction to check whether the time range is in the same year.
+    // If the function always monotonous, just return error.
+    fn factor_function() -> Result<Box<dyn Function>> {
+        Err(ErrorCode::UnknownException(
+            "Always monotonous, has no factor function",
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -201,6 +213,12 @@ impl NumberResultFunction<u8> for ToMonth {
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
     }
+
+    // ToMonth is NOT a monotonic function in general, unless the time range is within the same year.
+    // For example, date(2020-12-01) < date(2021-5-5), while ToMonth(2020-12-01) > ToMonth(2021-5-5).
+    fn factor_function() -> Result<Box<dyn Function>> {
+        ToStartOfYearFunction::try_create("toStartOfYear")
+    }
 }
 
 #[derive(Clone)]
@@ -218,6 +236,12 @@ impl NumberResultFunction<u16> for ToDayOfYear {
 
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt16(Some(Self::to_number(value)))
+    }
+
+    // ToDayOfYear is NOT a monotonic function in general, unless the time range is within the same year.
+    // For example, date(2020-12-01) < date(2021-5-5), while ToDayOfYear(2020-12-01) > ToDayOfYear(2021-5-5).
+    fn factor_function() -> Result<Box<dyn Function>> {
+        ToStartOfYearFunction::try_create("toStartOfYear")
     }
 }
 
@@ -237,6 +261,12 @@ impl NumberResultFunction<u8> for ToDayOfMonth {
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
     }
+
+    // ToDayOfMonth is not a monotonic function in general, unless the time range is within the same month.
+    // For example, date(2021-11-20) < date(2021-12-01), while ToDayOfMonth(2021-11-20) > ToDayOfMonth(2021-12-01).
+    fn factor_function() -> Result<Box<dyn Function>> {
+        ToStartOfMonthFunction::try_create("toStartOfMonth")
+    }
 }
 
 #[derive(Clone)]
@@ -254,6 +284,11 @@ impl NumberResultFunction<u8> for ToDayOfWeek {
 
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
+    }
+
+    // ToDayOfWeek is NOT a monotonic function in general, unless the time range is within the same week.
+    fn factor_function() -> Result<Box<dyn Function>> {
+        ToMondayFunction::try_create("toMonday")
     }
 }
 
@@ -273,6 +308,11 @@ impl NumberResultFunction<u8> for ToHour {
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
     }
+
+    // ToHour is NOT a monotonic function in general, unless the time range is within the same day.
+    fn factor_function() -> Result<Box<dyn Function>> {
+        CastFunction::create("toDate".to_string(), DataType::Date16)
+    }
 }
 
 #[derive(Clone)]
@@ -291,6 +331,11 @@ impl NumberResultFunction<u8> for ToMinute {
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
     }
+
+    // ToMinute is NOT a monotonic function in general, unless the time range is within the same hour.
+    fn factor_function() -> Result<Box<dyn Function>> {
+        RoundFunction::try_create("toStartOfHour", 60 * 60)
+    }
 }
 
 #[derive(Clone)]
@@ -308,6 +353,11 @@ impl NumberResultFunction<u8> for ToSecond {
 
     fn to_constant_value(value: DateTime<Utc>) -> DataValue {
         DataValue::UInt8(Some(Self::to_number(value)))
+    }
+
+    // ToSecond is NOT a monotonic function in general, unless the time range is within the same minute.
+    fn factor_function() -> Result<Box<dyn Function>> {
+        RoundFunction::try_create("toStartOfMinute", 60)
     }
 }
 
@@ -345,7 +395,7 @@ where
     }
 
     pub fn desc() -> FunctionDescription {
-        let mut features = FunctionFeatures::default();
+        let mut features = FunctionFeatures::default().monotonicity();
 
         if T::IS_DETERMINISTIC {
             features = features.deterministic();
@@ -437,6 +487,29 @@ where
                 self.name()))),
         }?;
         Ok(number_array)
+    }
+
+    fn get_monotonicity(&self, args: &[Monotonicity]) -> Result<Monotonicity> {
+        let func = match T::factor_function() {
+            Ok(f) => f,
+            // Always monotonous, has no factor function.
+            Err(_) => return Ok(Monotonicity::clone_without_range(&args[0])),
+        };
+
+        if args[0].left.is_none() || args[0].right.is_none() {
+            return Ok(Monotonicity::default());
+        }
+
+        let left_val = func.eval(&[args[0].left.clone().unwrap()], 1)?.try_get(0)?;
+        let right_val = func
+            .eval(&[args[0].right.clone().unwrap()], 1)?
+            .try_get(0)?;
+        // The function is monotonous, if the factor eval returns the same values for them.
+        if left_val == right_val {
+            return Ok(Monotonicity::clone_without_range(&args[0]));
+        }
+
+        Ok(Monotonicity::default())
     }
 }
 

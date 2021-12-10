@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,15 +22,15 @@ use common_planners::ExplainType;
 use common_streams::DataBlockStream;
 use common_streams::SendableDataBlockStream;
 
-use crate::interpreters::utils::apply_plan_rewrite;
+use crate::interpreters::interpreter_common::apply_plan_rewrite;
 use crate::interpreters::Interpreter;
 use crate::interpreters::InterpreterPtr;
 use crate::optimizers::Optimizers;
 use crate::pipelines::processors::PipelineBuilder;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 
 pub struct ExplainInterpreter {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
     explain: ExplainPlan,
 }
 
@@ -61,20 +61,13 @@ impl Interpreter for ExplainInterpreter {
 }
 
 impl ExplainInterpreter {
-    pub fn try_create(
-        ctx: DatabendQueryContextRef,
-        explain: ExplainPlan,
-    ) -> Result<InterpreterPtr> {
+    pub fn try_create(ctx: Arc<QueryContext>, explain: ExplainPlan) -> Result<InterpreterPtr> {
         Ok(Arc::new(ExplainInterpreter { ctx, explain }))
     }
 
     fn explain_graph(&self) -> Result<DataBlock> {
         let schema = self.schema();
-        let plan = apply_plan_rewrite(
-            self.ctx.clone(),
-            Optimizers::create(self.ctx.clone()),
-            &self.explain.input,
-        )?;
+        let plan = apply_plan_rewrite(Optimizers::create(self.ctx.clone()), &self.explain.input)?;
         let formatted_plan = Series::new(
             format!("{}", plan.display_graphviz())
                 .lines()
@@ -86,11 +79,7 @@ impl ExplainInterpreter {
 
     fn explain_syntax(&self) -> Result<DataBlock> {
         let schema = self.schema();
-        let plan = apply_plan_rewrite(
-            self.ctx.clone(),
-            Optimizers::create(self.ctx.clone()),
-            &self.explain.input,
-        )?;
+        let plan = apply_plan_rewrite(Optimizers::create(self.ctx.clone()), &self.explain.input)?;
         let formatted_plan = Series::new(
             format!("{:?}", plan)
                 .lines()
@@ -103,7 +92,7 @@ impl ExplainInterpreter {
     fn explain_pipeline(&self) -> Result<DataBlock> {
         let schema = self.schema();
         let optimizer = Optimizers::without_scatters(self.ctx.clone());
-        let plan = apply_plan_rewrite(self.ctx.clone(), optimizer, &self.explain.input)?;
+        let plan = apply_plan_rewrite(optimizer, &self.explain.input)?;
 
         let pipeline_builder = PipelineBuilder::create(self.ctx.clone());
         let pipeline = pipeline_builder.build(&plan)?;

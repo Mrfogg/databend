@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,24 +26,22 @@ use databend_meta::errors::MetaError;
 use databend_meta::errors::RetryableError;
 use databend_meta::meta_service::MetaNode;
 use databend_meta::proto::meta_service_client::MetaServiceClient;
-#[allow(unused_imports)]
-use log::info;
 use pretty_assertions::assert_eq;
 
 use crate::init_meta_ut;
-use crate::tests::assert_meta_connection;
-use crate::tests::service::new_test_context;
+use crate::tests::assert_metasrv_connection;
+use crate::tests::service::new_metasrv_test_context;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_meta_server_upsert_kv() -> anyhow::Result<()> {
+async fn test_metasrv_upsert_kv() -> anyhow::Result<()> {
     let (_log_guards, ut_span) = init_meta_ut!();
     let _ent = ut_span.enter();
 
-    let tc = new_test_context(0);
+    let tc = new_metasrv_test_context(0);
     let addr = tc.config.raft_config.raft_api_addr();
 
     let _mn = MetaNode::boot(&tc.config.raft_config).await?;
-    assert_meta_connection(&addr).await?;
+    assert_metasrv_connection(&addr).await?;
 
     let mut client = MetaServiceClient::connect(format!("http://{}", addr)).await?;
 
@@ -63,7 +61,7 @@ async fn test_meta_server_upsert_kv() -> anyhow::Result<()> {
         let rst: Result<AppliedState, RetryableError> = raft_mes.into();
         let resp: AppliedState = rst?;
         match resp {
-            AppliedState::KV(Change { prev, result }) => {
+            AppliedState::KV(Change { prev, result, .. }) => {
                 assert!(prev.is_none());
                 let sv = result.unwrap();
                 assert!(sv.seq > 0);
@@ -80,15 +78,15 @@ async fn test_meta_server_upsert_kv() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_meta_server_incr_seq() -> anyhow::Result<()> {
+async fn test_metasrv_incr_seq() -> anyhow::Result<()> {
     let (_log_guards, ut_span) = init_meta_ut!();
     let _ent = ut_span.enter();
 
-    let tc = new_test_context(0);
+    let tc = new_metasrv_test_context(0);
     let addr = tc.config.raft_config.raft_api_addr();
 
     let _mn = MetaNode::boot(&tc.config.raft_config).await?;
-    assert_meta_connection(&addr).await?;
+    assert_metasrv_connection(&addr).await?;
 
     let mut client = MetaServiceClient::connect(format!("http://{}", addr)).await?;
 
@@ -117,21 +115,21 @@ async fn test_meta_server_incr_seq() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_meta_cluster_write_on_non_leader() -> anyhow::Result<()> {
+async fn test_metasrv_cluster_write_on_non_leader() -> anyhow::Result<()> {
     // - Bring up a cluster of one leader and one non-voter
     // - Assert that writing on the non-voter returns ForwardToLeader error
 
     let (_log_guards, ut_span) = init_meta_ut!();
     let _ent = ut_span.enter();
 
-    let tc0 = new_test_context(0);
-    let tc1 = new_test_context(1);
+    let tc0 = new_metasrv_test_context(0);
+    let tc1 = new_metasrv_test_context(1);
 
     let addr0 = tc0.config.raft_config.raft_api_addr();
     let addr1 = tc1.config.raft_config.raft_api_addr();
 
     let mn0 = MetaNode::boot(&tc0.config.raft_config).await?;
-    assert_meta_connection(&addr0).await?;
+    assert_metasrv_connection(&addr0).await?;
 
     {
         tracing::info!("--- add node 1 as non-voter");
@@ -139,7 +137,7 @@ async fn test_meta_cluster_write_on_non_leader() -> anyhow::Result<()> {
         let config = tc1.config.raft_config.clone();
         let mn1 = MetaNode::open_create_boot(&config, None, Some(()), None).await?;
 
-        assert_meta_connection(&addr0).await?;
+        assert_metasrv_connection(&addr0).await?;
 
         let resp = mn0.add_node(1, addr1.clone()).await?;
         match resp {

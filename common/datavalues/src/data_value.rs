@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -112,6 +112,40 @@ impl DataValue {
             }
             DataValue::String(_) => DataType::String,
         }
+    }
+
+    #[inline]
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            DataValue::Int8(_)
+                | DataValue::Int16(_)
+                | DataValue::Int32(_)
+                | DataValue::Int64(_)
+                | DataValue::UInt8(_)
+                | DataValue::UInt16(_)
+                | DataValue::UInt32(_)
+                | DataValue::UInt64(_)
+        )
+    }
+
+    #[inline]
+    pub fn is_signed_integer(&self) -> bool {
+        matches!(
+            self,
+            DataValue::Int8(_) | DataValue::Int16(_) | DataValue::Int32(_) | DataValue::Int64(_)
+        )
+    }
+
+    #[inline]
+    pub fn is_unsigned_integer(&self) -> bool {
+        matches!(
+            self,
+            DataValue::UInt8(_)
+                | DataValue::UInt16(_)
+                | DataValue::UInt32(_)
+                | DataValue::UInt64(_)
+        )
     }
 
     pub fn to_array(&self) -> Result<Series> {
@@ -265,6 +299,71 @@ impl DataValue {
             DataValue::Float64(v) => Ok(v.map_or(false, |v| v != 0f64)),
             other => Result::Err(ErrorCode::BadDataValueType(format!(
                 "Unexpected type:{:?} to get boolean",
+                other.data_type()
+            ))),
+        }
+    }
+
+    pub fn as_f64(&self) -> Result<f64> {
+        match self {
+            DataValue::Int8(Some(v)) => Ok(*v as f64),
+            DataValue::Int16(Some(v)) => Ok(*v as f64),
+            DataValue::Int32(Some(v)) => Ok(*v as f64),
+            DataValue::Int64(Some(v)) => Ok(*v as f64),
+            DataValue::UInt8(Some(v)) => Ok(*v as f64),
+            DataValue::UInt16(Some(v)) => Ok(*v as f64),
+            DataValue::UInt32(Some(v)) => Ok(*v as f64),
+            DataValue::UInt64(Some(v)) => Ok(*v as f64),
+            DataValue::Float32(Some(v)) => Ok(*v as f64),
+            DataValue::Float64(Some(v)) => Ok(*v),
+            other => Result::Err(ErrorCode::BadDataValueType(format!(
+                "Unexpected type:{:?} to get f64 number",
+                other.data_type()
+            ))),
+        }
+    }
+
+    pub fn new_from_data_type(data_type: &DataType, nullable: bool) -> Self {
+        if nullable {
+            return data_type.into();
+        }
+        match data_type {
+            DataType::Null => DataValue::Null,
+            DataType::Boolean => DataValue::Boolean(Some(false)),
+            DataType::UInt8 => DataValue::UInt8(Some(0)),
+            DataType::UInt16 => DataValue::UInt16(Some(0)),
+            DataType::UInt32 => DataValue::UInt32(Some(0)),
+            DataType::UInt64 => DataValue::UInt64(Some(0)),
+            DataType::Int8 => DataValue::Int8(Some(0)),
+            DataType::Int16 => DataValue::Int16(Some(0)),
+            DataType::Int32 => DataValue::Int32(Some(0)),
+            DataType::Int64 => DataValue::Int64(Some(0)),
+            DataType::Float32 => DataValue::Float32(Some(0.0)),
+            DataType::Float64 => DataValue::Float64(Some(0.0)),
+            DataType::Date16 => DataValue::UInt16(Some(0)),
+            DataType::Date32 => DataValue::Int32(Some(0)),
+            DataType::DateTime32(_) => DataValue::UInt32(Some(0)),
+            DataType::Interval(_) => DataValue::Int64(Some(0)),
+            DataType::List(f) => DataValue::List(Some(vec![]), f.data_type().clone()),
+            DataType::Struct(_) => DataValue::Struct(vec![]),
+            DataType::String => DataValue::String(Some(vec![])),
+        }
+    }
+    pub fn as_string(&self) -> Result<Vec<u8>> {
+        match self {
+            DataValue::Int8(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::Int16(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::Int32(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::Int64(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::UInt8(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::UInt16(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::UInt32(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::UInt64(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::Float32(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::Float64(Some(v)) => Ok(Vec::<u8>::from((*v).to_string())),
+            DataValue::String(Some(v)) => Ok(v.to_owned()),
+            other => Result::Err(ErrorCode::BadDataValueType(format!(
+                "Unexpected type:{:?} to get string",
                 other.data_type()
             ))),
         }

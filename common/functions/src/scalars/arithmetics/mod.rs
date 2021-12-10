@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 mod arithmetic;
 mod arithmetic_div;
+mod arithmetic_intdiv;
 mod arithmetic_minus;
 mod arithmetic_modulo;
 mod arithmetic_mul;
@@ -21,6 +22,7 @@ mod arithmetic_plus;
 
 pub use arithmetic::ArithmeticFunction;
 pub use arithmetic_div::ArithmeticDivFunction;
+pub use arithmetic_intdiv::ArithmeticIntDivFunction;
 pub use arithmetic_minus::ArithmeticMinusFunction;
 pub use arithmetic_modulo::ArithmeticModuloFunction;
 pub use arithmetic_mul::ArithmeticMulFunction;

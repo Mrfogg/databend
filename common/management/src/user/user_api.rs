@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,45 +13,12 @@
 // limitations under the License.
 //
 
-use std::convert::TryFrom;
-
-use common_exception::ErrorCode;
 use common_exception::Result;
 use common_meta_types::AuthType;
+use common_meta_types::GrantObject;
 use common_meta_types::SeqV;
+use common_meta_types::UserInfo;
 use common_meta_types::UserPrivilege;
-use common_meta_types::UserQuota;
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct UserInfo {
-    pub name: String,
-    pub hostname: String,
-    pub password: Vec<u8>,
-    pub auth_type: AuthType,
-    pub privileges: UserPrivilege,
-    pub quota: UserQuota,
-}
-
-impl UserInfo {
-    pub fn new(name: String, hostname: String, password: Vec<u8>, auth_type: AuthType) -> Self {
-        // Default is no privileges.
-        let privileges = UserPrivilege::empty();
-        let quota = UserQuota::no_limit();
-
-        UserInfo {
-            name,
-            hostname,
-            password,
-            auth_type,
-            privileges,
-            quota,
-        }
-    }
-
-    pub fn set_privileges(&mut self, privileges: UserPrivilege) {
-        self.privileges |= privileges;
-    }
-}
 
 #[async_trait::async_trait]
 pub trait UserMgrApi: Sync + Send {
@@ -75,27 +42,23 @@ pub trait UserMgrApi: Sync + Send {
         seq: Option<u64>,
     ) -> Result<Option<u64>>;
 
-    async fn set_user_privileges(
+    async fn grant_user_privileges(
         &self,
         username: String,
         hostname: String,
+        object: GrantObject,
+        privileges: UserPrivilege,
+        seq: Option<u64>,
+    ) -> Result<Option<u64>>;
+
+    async fn revoke_user_privileges(
+        &self,
+        username: String,
+        hostname: String,
+        object: GrantObject,
         privileges: UserPrivilege,
         seq: Option<u64>,
     ) -> Result<Option<u64>>;
 
     async fn drop_user(&self, username: String, hostname: String, seq: Option<u64>) -> Result<()>;
-}
-
-impl TryFrom<Vec<u8>> for UserInfo {
-    type Error = ErrorCode;
-
-    fn try_from(value: Vec<u8>) -> Result<Self> {
-        match serde_json::from_slice(&value) {
-            Ok(user_info) => Ok(user_info),
-            Err(serialize_error) => Err(ErrorCode::IllegalUserInfoFormat(format!(
-                "Cannot deserialize user info from bytes. cause {}",
-                serialize_error
-            ))),
-        }
-    }
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
 use std::f64::consts::E;
 use std::fmt;
 
-use common_arrow::arrow::array::PrimitiveArray;
-use common_arrow::arrow::buffer::Buffer;
 use common_datavalues::prelude::*;
 use common_datavalues::DataSchema;
 use common_datavalues::DataType;
@@ -76,7 +74,7 @@ impl Function for GenericLogFunction {
         Ok(true)
     }
 
-    fn eval(&self, columns: &DataColumnsWithField, _input_rows: usize) -> Result<DataColumn> {
+    fn eval(&self, columns: &DataColumnsWithField, input_rows: usize) -> Result<DataColumn> {
         let result = if columns.len() == 1 {
             // Log(num) with default_base if one arg
             let num_series = columns[0]
@@ -90,33 +88,33 @@ impl Function for GenericLogFunction {
             // Log(base, num) if two args
             let base_column: &DataColumn =
                 &columns[0].column().cast_with_type(&DataType::Float64)?;
-            let num_series = columns[1]
-                .column()
-                .to_minimal_array()?
-                .cast_with_type(&DataType::Float64)?;
-            match base_column {
-                DataColumn::Constant(v, _) => {
-                    let base = DFTryFrom::try_from(v.clone())?;
-                    num_series.f64()?.apply_cast_numeric(|v| v.log(base))
+            let num_column: &DataColumn =
+                &columns[1].column().cast_with_type(&DataType::Float64)?;
+
+            match (base_column, num_column) {
+                (DataColumn::Array(base_series), DataColumn::Constant(v, _)) => {
+                    if v.is_null() {
+                        DFFloat64Array::full_null(input_rows)
+                    } else {
+                        let v: f64 = DFTryFrom::try_from(v.clone())?;
+                        base_series.f64()?.apply_cast_numeric(|base| v.log(base))
+                    }
                 }
-                DataColumn::Array(base_series) => {
-                    let validity = combine_validities(
-                        num_series.get_array_ref().validity(),
-                        base_series.get_array_ref().validity(),
-                    );
-                    let values = Buffer::from_trusted_len_iter(
-                        num_series
-                            .f64()?
-                            .into_no_null_iter()
-                            .zip(base_series.f64()?.into_no_null_iter())
-                            .map::<f64, _>(|(num, base)| num.log(*base)),
-                    );
-                    let array = PrimitiveArray::<f64>::from_data(
-                        DataType::Float64.to_arrow(),
-                        values,
-                        validity,
-                    );
-                    DFFloat64Array::from_arrow_array(&array)
+                (DataColumn::Constant(base, _), DataColumn::Array(num_series)) => {
+                    if base.is_null() {
+                        DFFloat64Array::full_null(input_rows)
+                    } else {
+                        let base = DFTryFrom::try_from(base.clone())?;
+                        num_series.f64()?.apply_cast_numeric(|v| v.log(base))
+                    }
+                }
+                _ => {
+                    let base_series = base_column.to_minimal_array()?;
+                    let num_series = num_column.to_minimal_array()?;
+
+                    binary(num_series.f64()?, base_series.f64()?, |num, base| {
+                        num.log(base)
+                    })
                 }
             }
         };

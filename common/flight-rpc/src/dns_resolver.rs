@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -161,13 +161,13 @@ impl ConnectionFactory {
                     let client_tls_config = Self::client_tls_config(&conf).map_err(|e| {
                         ErrorCode::TLSConfigurationFailure(format!(
                             "loading client tls config failure: {} ",
-                            e.to_string()
+                            e
                         ))
                     })?;
                     builder.tls_config(client_tls_config).map_err(|e| {
                         ErrorCode::TLSConfigurationFailure(format!(
                             "builder tls_config failure: {}",
-                            e.to_string()
+                            e
                         ))
                     })?
                 } else {

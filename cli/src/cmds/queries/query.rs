@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,10 +27,14 @@ use comfy_table::Cell;
 use comfy_table::Color;
 use comfy_table::Table;
 use common_base::ProgressValues;
-use common_datavalues::prelude::*;
+use common_datavalues::DataSchemaRef;
+use http::HeaderMap;
+use http::Uri;
 use lexical_util::num::AsPrimitive;
 use num_format::Locale;
 use num_format::ToFormattedString;
+use reqwest::multipart;
+use serde_json::json;
 use serde_json::Value;
 
 use crate::cmds::clusters::cluster::ClusterProfile;
@@ -44,7 +48,6 @@ use crate::error::Result;
 
 #[derive(Clone)]
 pub struct QueryCommand {
-    #[allow(dead_code)]
     conf: Config,
 }
 
@@ -182,11 +185,10 @@ async fn query_writer(
                         "read rows: {}, read bytes: {}, rows/sec: {} (rows/sec), bytes/sec: {} ({}/sec), time: {} sec",
                         stat.read_rows.to_formatted_string(&Locale::en),
                         byte_unit::Byte::from_bytes(stat.read_bytes as u128)
-                            .get_appropriate_unit(false)
-                            .to_string(),
+                            .get_appropriate_unit(false),
                         (stat.read_rows as f64 / time).as_u128().to_formatted_string(&Locale::en),
                         byte_per_sec.get_value(),
-                        byte_per_sec.get_unit().to_string(), time
+                        byte_per_sec.get_unit(), time
                     )
                 );
             }
@@ -202,7 +204,7 @@ async fn query_writer(
 }
 
 // TODO(zhihanz) mTLS support
-pub fn build_query_endpoint(status: &Status) -> Result<(reqwest::Client, String)> {
+fn build_endpoint(status: &Status, path: &str) -> Result<(reqwest::Client, String)> {
     let query_configs = status.get_local_query_configs();
 
     let (_, query) = query_configs.get(0).expect("cannot find query configs");
@@ -220,12 +222,20 @@ pub fn build_query_endpoint(status: &Status) -> Result<(reqwest::Client, String)
             )
             .parse::<SocketAddr>()
             .expect("cannot build query socket address");
-            format!("http://{}:{}/v1/statement", address.ip(), address.port())
+            format!("http://{}:{}{}", address.ip(), address.port(), path)
         } else {
             todo!()
         }
     };
     Ok((client, url))
+}
+
+pub fn build_query_endpoint(status: &Status) -> Result<(reqwest::Client, String)> {
+    build_endpoint(status, "/v1/query?wait_time=-1")
+}
+
+pub fn build_load_endpoint(status: &Status) -> Result<(reqwest::Client, String)> {
+    build_endpoint(status, "/v1/streaming_load")
 }
 
 pub async fn execute_query_json(
@@ -234,16 +244,16 @@ pub async fn execute_query_json(
     query: String,
 ) -> Result<(
     Option<DataSchemaRef>,
-    Option<Vec<Vec<Value>>>,
-    Option<ProgressValues>,
+    Arc<Vec<Vec<Value>>>,
+    databend_query::servers::http::v1::QueryStats,
 )> {
     let ans = cli
         .post(url)
-        .body(query.clone())
+        .json(&json!({"sql": query.clone()}))
         .send()
         .await
         .expect("cannot post to http handler")
-        .json::<databend_query::servers::http::v1::statement::HttpQueryResult>()
+        .json::<databend_query::servers::http::v1::QueryResponse>()
         .await;
     if let Err(e) = ans {
         return Err(CliError::Unknown(format!(
@@ -252,13 +262,24 @@ pub async fn execute_query_json(
         )));
     } else {
         let ans = ans.unwrap();
+        if let Some(final_uri) = ans.final_uri {
+            let uri = url.parse::<Uri>().unwrap();
+            let uri = format!(
+                "{}://{}:{}/{}",
+                uri.scheme().unwrap(),
+                uri.host().unwrap(),
+                uri.port().unwrap(),
+                final_uri
+            );
+            cli.get(uri).send().await.expect("fail to get final_uri");
+        }
         if ans.error.is_some() {
             return Err(CliError::Unknown(format!(
                 "Query has error: {:?}",
                 ans.error.unwrap()
             )));
         }
-        Ok((ans.columns, ans.data, ans.stats))
+        Ok((ans.schema, ans.data, ans.stats))
     }
 }
 
@@ -278,17 +299,41 @@ async fn execute_query(
                 .map(|field| Cell::new(field.name().as_str()).fg(Color::Green)),
         );
     }
-    if let Some(rows) = data {
-        if rows.is_empty() {
-            return Ok(("".to_string(), stats));
-        } else {
-            for row in rows {
-                table.add_row(row.iter().map(|elem| Cell::new(elem.to_string())));
-            }
-            return Ok((table.trim_fmt(), stats));
+    if data.is_empty() {
+        Ok(("".to_string(), stats.progress))
+    } else {
+        for row in data.as_ref() {
+            table.add_row(row.iter().map(|elem| Cell::new(elem.to_string())));
         }
+        Ok((table.trim_fmt(), stats.progress))
     }
-    Ok(("".to_string(), stats))
+}
+
+pub async fn execute_load(
+    cli: &reqwest::Client,
+    url: &str,
+    headers: HeaderMap,
+    data: Vec<u8>,
+) -> Result<ProgressValues> {
+    let part = multipart::Part::stream(data);
+    let form = multipart::Form::new().part("sample", part);
+
+    let resp = cli
+        .put(url)
+        .headers(headers)
+        .multipart(form)
+        .send()
+        .await
+        .expect("cannot post to http handler")
+        .json::<databend_query::servers::http::v1::LoadResponse>()
+        .await;
+    match resp {
+        Ok(v) => Ok(v.stats),
+        Err(e) => Err(CliError::Unknown(format!(
+            "Cannot retrieve query result: {:?}",
+            e
+        ))),
+    }
 }
 
 #[async_trait]
@@ -304,14 +349,14 @@ impl Command for QueryCommand {
             .arg(
                 Arg::new("profile")
                     .long("profile")
-                    .about("Profile to run queries")
+                    .help("Profile to run queries")
                     .required(false)
                     .possible_values(&["local"])
                     .default_value("local"),
             )
             .arg(
                 Arg::new("query")
-                    .about("Query statements to run")
+                    .help("Query statements to run")
                     .takes_value(true)
                     .required(true),
             )

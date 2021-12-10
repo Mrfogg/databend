@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,18 +36,18 @@ fn test_angle_function() -> Result<()> {
             name: "degress-passed",
             display: "degrees",
             nullable: false,
-            columns: Series::new(vec![PI, PI / 2.0]).into(),
+            columns: Series::new([Some(PI), Some(PI / 2.0), None]).into(),
             func: DegressFunction::try_create("degrees")?,
-            expect: Series::new(vec![180_f64, 90.0]).into(),
+            expect: Series::new([Some(180_f64), Some(90.0), None]).into(),
             error: "",
         },
         Test {
             name: "radians-passed",
             display: "radians",
             nullable: false,
-            columns: Series::new(vec![180]).into(),
+            columns: Series::new([Some(180), None]).into(),
             func: RadiansFunction::try_create("radians")?,
-            expect: Series::new(vec![PI]).into(),
+            expect: Series::new([Some(PI), None]).into(),
             error: "",
         },
     ];

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,12 +13,10 @@
 // limitations under the License.
 //
 
-pub use database_catalog::DatabaseCatalog;
-
-pub use crate::catalogs::table_id_ranges::LOCAL_TBL_ID_BEGIN;
-pub use crate::catalogs::table_id_ranges::SYS_TBL_ID_BEGIN;
-pub use crate::catalogs::table_id_ranges::SYS_TBL_ID_END;
-
-mod catalog;
 mod database_catalog;
-pub mod in_memory_meta;
+mod immutable_catalog;
+mod mutable_catalog;
+
+pub use database_catalog::DatabaseCatalog;
+pub use immutable_catalog::ImmutableCatalog;
+pub use mutable_catalog::MutableCatalog;

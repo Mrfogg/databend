@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,14 +21,15 @@ use common_datavalues::DataValueArithmeticOperator;
 use common_exception::Result;
 
 use crate::scalars::dates::IntervalFunctionFactory;
-use crate::scalars::function::MonotonicityNode;
 use crate::scalars::function_factory::FunctionFactory;
 use crate::scalars::ArithmeticDivFunction;
+use crate::scalars::ArithmeticIntDivFunction;
 use crate::scalars::ArithmeticMinusFunction;
 use crate::scalars::ArithmeticModuloFunction;
 use crate::scalars::ArithmeticMulFunction;
 use crate::scalars::ArithmeticPlusFunction;
 use crate::scalars::Function;
+use crate::scalars::Monotonicity;
 
 #[derive(Clone)]
 pub struct ArithmeticFunction {
@@ -47,10 +48,15 @@ impl ArithmeticFunction {
         factory.register("divide", ArithmeticDivFunction::desc());
         factory.register("%", ArithmeticModuloFunction::desc());
         factory.register("modulo", ArithmeticModuloFunction::desc());
+        factory.register("div", ArithmeticIntDivFunction::desc());
     }
 
     pub fn try_create_func(op: DataValueArithmeticOperator) -> Result<Box<dyn Function>> {
-        Ok(Box::new(ArithmeticFunction { op }))
+        Ok(Box::new(ArithmeticFunction::new(op)))
+    }
+
+    pub fn new(op: DataValueArithmeticOperator) -> Self {
+        ArithmeticFunction { op }
     }
 }
 
@@ -64,10 +70,10 @@ impl Function for ArithmeticFunction {
             return numerical_unary_arithmetic_coercion(&self.op, &args[0]);
         }
 
-        if is_interval(&args[0]) || is_interval(&args[1]) {
+        if args[0].is_interval() || args[1].is_interval() {
             return interval_arithmetic_coercion(&self.op, &args[0], &args[1]);
         }
-        if is_date_or_date_time(&args[0]) || is_date_or_date_time(&args[1]) {
+        if args[0].is_date_or_date_time() || args[1].is_date_or_date_time() {
             return datetime_arithmetic_coercion(&self.op, &args[0], &args[1]);
         }
         numerical_arithmetic_coercion(&self.op, &args[0], &args[1])
@@ -92,7 +98,7 @@ impl Function for ArithmeticFunction {
             }
         };
 
-        let has_date_or_date_time = columns.iter().any(|c| is_date_or_date_time(c.data_type()));
+        let has_date_or_date_time = columns.iter().any(|c| c.data_type().is_date_or_date_time());
 
         if has_date_or_date_time {
             let args = columns
@@ -114,12 +120,13 @@ impl Function for ArithmeticFunction {
         Some((1, 2))
     }
 
-    fn get_monotonicity(&self, args: &[MonotonicityNode]) -> Result<MonotonicityNode> {
+    fn get_monotonicity(&self, args: &[Monotonicity]) -> Result<Monotonicity> {
         match self.op {
             Plus => ArithmeticPlusFunction::get_monotonicity(args),
             Minus => ArithmeticMinusFunction::get_monotonicity(args),
             Mul => ArithmeticMulFunction::get_monotonicity(args),
             Div => ArithmeticDivFunction::get_monotonicity(args),
+            IntDiv => ArithmeticIntDivFunction::get_monotonicity(args),
             Modulo => ArithmeticModuloFunction::get_monotonicity(args),
         }
     }

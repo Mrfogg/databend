@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,16 +25,12 @@ impl Thread {
         F: Send + 'static,
         T: Send + 'static,
     {
-        let outer_tracker = ThreadTracker::current() as usize;
-        std::thread::spawn(move || {
-            let outer_tracker = outer_tracker as *const ThreadTracker;
-
-            if !outer_tracker.is_null() {
-                // We use the same tracker for std::thread
-                ThreadTracker::set_current(outer_tracker);
-            }
-
-            f()
-        })
+        match ThreadTracker::current_runtime_tracker() {
+            None => std::thread::spawn(f),
+            Some(runtime_tracker) => std::thread::spawn(move || {
+                ThreadTracker::create(runtime_tracker);
+                f()
+            }),
+        }
     }
 }

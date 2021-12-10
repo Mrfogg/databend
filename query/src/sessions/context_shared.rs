@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,26 +16,27 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::time::Duration;
 
-use common_base::BlockingWait;
 use common_base::Progress;
 use common_base::Runtime;
+use common_dal::DalContext;
+use common_exception::ErrorCode;
 use common_exception::Result;
 use common_infallible::Mutex;
 use common_infallible::RwLock;
+use common_meta_types::UserInfo;
 use common_planners::PlanNode;
 use futures::future::AbortHandle;
 use uuid::Uuid;
 
-use crate::catalogs::impls::DatabaseCatalog;
 use crate::catalogs::Catalog;
-use crate::catalogs::Table;
-use crate::clusters::ClusterRef;
+use crate::catalogs::DatabaseCatalog;
+use crate::clusters::Cluster;
 use crate::configs::Config;
-use crate::servers::http::v1::query::HttpQueryHandle;
+use crate::servers::http::v1::HttpQueryHandle;
 use crate::sessions::Session;
 use crate::sessions::Settings;
+use crate::storages::Table;
 
 type DatabaseAndTable = (String, String);
 
@@ -48,13 +49,13 @@ type DatabaseAndTable = (String, String);
 ///         (SELECT scalar FROM table_name_3) AS scalar_3
 ///     FROM table_name_4;
 /// For each subquery, they will share a runtime, session, progress, init_query_id
-pub struct DatabendQueryContextShared {
-    pub(in crate::sessions) conf: Config,
+pub struct QueryContextShared {
+    pub conf: Config,
     pub(in crate::sessions) progress: Arc<Progress>,
     pub(in crate::sessions) session: Arc<Session>,
     pub(in crate::sessions) runtime: Arc<RwLock<Option<Arc<Runtime>>>>,
     pub(in crate::sessions) init_query_id: Arc<RwLock<String>>,
-    pub(in crate::sessions) cluster_cache: ClusterRef,
+    pub(in crate::sessions) cluster_cache: Arc<Cluster>,
     pub(in crate::sessions) sources_abort_handle: Arc<RwLock<Vec<AbortHandle>>>,
     pub(in crate::sessions) ref_count: Arc<AtomicUsize>,
     pub(in crate::sessions) subquery_index: Arc<AtomicUsize>,
@@ -62,15 +63,16 @@ pub struct DatabendQueryContextShared {
     pub(in crate::sessions) http_query: Arc<RwLock<Option<HttpQueryHandle>>>,
     pub(in crate::sessions) running_plan: Arc<RwLock<Option<PlanNode>>>,
     pub(in crate::sessions) tables_refs: Arc<Mutex<HashMap<DatabaseAndTable, Arc<dyn Table>>>>,
+    pub(in crate::sessions) dal_ctx: Arc<DalContext>,
 }
 
-impl DatabendQueryContextShared {
+impl QueryContextShared {
     pub fn try_create(
         conf: Config,
         session: Arc<Session>,
-        cluster_cache: ClusterRef,
-    ) -> Arc<DatabendQueryContextShared> {
-        Arc::new(DatabendQueryContextShared {
+        cluster_cache: Arc<Cluster>,
+    ) -> Arc<QueryContextShared> {
+        Arc::new(QueryContextShared {
             conf,
             init_query_id: Arc::new(RwLock::new(Uuid::new_v4().to_string())),
             progress: Arc::new(Progress::create()),
@@ -84,6 +86,7 @@ impl DatabendQueryContextShared {
             http_query: Arc::new(RwLock::new(None)),
             running_plan: Arc::new(RwLock::new(None)),
             tables_refs: Arc::new(Mutex::new(HashMap::new())),
+            dal_ctx: Arc::new(Default::default()),
         })
     }
 
@@ -102,7 +105,7 @@ impl DatabendQueryContextShared {
         // TODO: Wait for the query to be processed (write out the last error)
     }
 
-    pub fn get_cluster(&self) -> ClusterRef {
+    pub fn get_cluster(&self) -> Arc<Cluster> {
         self.cluster_cache.clone()
     }
 
@@ -114,6 +117,10 @@ impl DatabendQueryContextShared {
         self.session.set_current_database(new_database_name);
     }
 
+    pub fn get_current_user(&self) -> Result<UserInfo> {
+        self.session.get_current_user()
+    }
+
     pub fn get_settings(&self) -> Arc<Settings> {
         self.session.get_settings()
     }
@@ -122,27 +129,34 @@ impl DatabendQueryContextShared {
         self.session.get_catalog()
     }
 
-    pub fn get_table(&self, database: &str, table: &str) -> Result<Arc<dyn Table>> {
+    pub async fn get_table(&self, database: &str, table: &str) -> Result<Arc<dyn Table>> {
         // Always get same table metadata in the same query
         let table_meta_key = (database.to_string(), table.to_string());
 
+        let already_in_cache = { self.tables_refs.lock().contains_key(&table_meta_key) };
+
+        match already_in_cache {
+            false => self.get_table_to_cache(database, table).await,
+            true => Ok(self
+                .tables_refs
+                .lock()
+                .get(&table_meta_key)
+                .ok_or_else(|| ErrorCode::LogicalError("Logical error, it's a bug."))?
+                .clone()),
+        }
+    }
+
+    async fn get_table_to_cache(&self, database: &str, table: &str) -> Result<Arc<dyn Table>> {
+        let catalog = self.get_catalog();
+        let cache_table = catalog.get_table(database, table).await?;
+
+        let table_meta_key = (database.to_string(), table.to_string());
         let mut tables_refs = self.tables_refs.lock();
 
-        let ent = match tables_refs.entry(table_meta_key) {
-            Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(entry) => {
-                let catalog = self.get_catalog();
-                let rt = self.try_get_runtime()?;
-                let database = database.to_string();
-                let table = table.to_string();
-                let t = (async move { catalog.get_table(&database, &table).await })
-                    .wait_in(&rt, Some(Duration::from_millis(5000)))??;
-
-                entry.insert(t).clone()
-            }
-        };
-
-        Ok(ent)
+        match tables_refs.entry(table_meta_key) {
+            Entry::Occupied(v) => Ok(v.get().clone()),
+            Entry::Vacant(v) => Ok(v.insert(cache_table).clone()),
+        }
     }
 
     /// Init runtime when first get
@@ -161,13 +175,19 @@ impl DatabendQueryContextShared {
         }
     }
 
-    pub fn attach_http_query(&self, handle: HttpQueryHandle) {
+    pub fn attach_http_query_handle(&self, handle: HttpQueryHandle) {
         let mut http_query = self.http_query.write();
         *http_query = Some(handle);
     }
+
     pub fn attach_query_str(&self, query: &str) {
         let mut running_query = self.running_query.write();
         *running_query = Some(query.to_string());
+    }
+
+    pub fn get_query_str(&self) -> String {
+        let running_query = self.running_query.read();
+        running_query.as_ref().unwrap_or(&"".to_string()).clone()
     }
 
     pub fn attach_query_plan(&self, plan: &PlanNode) {
@@ -183,7 +203,6 @@ impl DatabendQueryContextShared {
 
 impl Session {
     pub(in crate::sessions) fn destroy_context_shared(&self) {
-        let mut mutable_state = self.mutable_state.lock();
-        mutable_state.context_shared.take();
+        self.mutable_state.take_context_shared();
     }
 }

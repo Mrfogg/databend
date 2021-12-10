@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -90,5 +90,19 @@ where S: AsRef<[u8]>
         let mut builder = StringArrayBuilder::with_capacity(cap * 5);
         it.for_each(|v| builder.append_value(v));
         builder.finish()
+    }
+
+    fn new_from_iter_validity(
+        it: impl Iterator<Item = S>,
+        validity: Option<common_arrow::arrow::bitmap::Bitmap>,
+    ) -> Self {
+        let cap = get_iter_capacity(&it);
+        let mut builder = StringArrayBuilder::with_capacity(cap * 5);
+        it.for_each(|v| builder.append_value(v));
+
+        let mut array = builder.finish();
+        array.array = array.array.with_validity(validity);
+
+        array
     }
 }

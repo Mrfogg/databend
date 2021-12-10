@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn filter_batch_array() -> Result<()> {
-    #[allow(dead_code)]
     struct FilterArrayTest {
         name: &'static str,
         filter: DFBooleanArray,

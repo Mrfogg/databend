@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,12 +22,16 @@ use std::string::FromUtf8Error;
 use std::sync::Arc;
 
 use backtrace::Backtrace;
+use sled::transaction::ConflictableTransactionError;
+use sled::transaction::TransactionError;
 use thiserror::Error;
 use tonic::Code;
 use tonic::Status;
 
 pub static ABORT_SESSION: u16 = 42;
 pub static ABORT_QUERY: u16 = 43;
+
+pub static UNKNOWN_USER: u16 = 3000;
 
 #[derive(Clone)]
 pub enum ErrorCodeBacktrace {
@@ -91,10 +95,9 @@ impl ErrorCode {
     }
 
     pub fn backtrace_str(&self) -> String {
-        match self.backtrace.as_ref() {
-            None => "".to_string(),
-            Some(backtrace) => backtrace.to_string(),
-        }
+        self.backtrace
+            .as_ref()
+            .map_or("".to_string(), |x| x.to_string())
     }
 }
 
@@ -183,6 +186,8 @@ build_exceptions! {
     DateTimeParseError(55),
     BadPredicateRows(56),
     SHA1CheckFailed(57),
+    UnknownColumn(58),
+    InvalidSourceFormat(59),
 
     // uncategorized
     UnexpectedResponseType(600),
@@ -224,10 +229,13 @@ build_exceptions! {
     IllegalSnapshot(2405),
     UnknownTableId(2406),
     TableVersionMissMatch(2407),
+    UnknownDatabaseId(2408),
 
     // KVSrv server error
 
     MetaSrvError(2501),
+    TransactionAbort(2502),
+    TransactionError(2503),
 
     // FS error
 
@@ -243,7 +251,7 @@ build_exceptions! {
     // let's figure it out latter.
 
     // user-api error codes
-    UnknownUser(3000),
+    UnknownUser(UNKNOWN_USER),
     UserAlreadyExists(3001),
     IllegalUserInfoFormat(3002),
 
@@ -261,6 +269,11 @@ build_exceptions! {
     ClusterUnknownNode(4058),
     ClusterNodeAlreadyExists(4059),
 
+    // stage error.
+    UnknownStage(4060),
+    StageAlreadyExists(4061),
+    IllegalStageInfoFormat(4062),
+
     // storage-api error codes
     ReadFileError(5001),
     BrokenChannel(5002),
@@ -274,13 +287,17 @@ build_exceptions! {
     UnknownStorageSchemeName(7001),
     SecretKeyNotSet(7002),
 
-
     // datasource error
     DuplicatedTableEngineProvider(8000),
     UnknownDatabaseEngine(8001),
     UnknownTableEngine(8002),
     DuplicatedDatabaseEngineProvider(8003),
 
+    // http query error
+    HttpNotFound(9404),
+
+    // network error
+    NetworkRequestError(9001),
 }
 // General errors
 build_exceptions! {
@@ -388,7 +405,7 @@ impl From<serde_json::Error> for ErrorCode {
 
 impl From<sqlparser::parser::ParserError> for ErrorCode {
     fn from(error: sqlparser::parser::ParserError) -> Self {
-        ErrorCode::from_std_error(error)
+        ErrorCode::SyntaxException(format!("{}", error))
     }
 }
 
@@ -419,6 +436,39 @@ impl From<prost::EncodeError> for ErrorCode {
             "Bad bytes, cannot parse bytes with prost, cause: {}",
             error
         ))
+    }
+}
+
+impl From<octocrab::Error> for ErrorCode {
+    fn from(error: octocrab::Error) -> Self {
+        ErrorCode::NetworkRequestError(format!("octocrab error, cause: {}", error))
+    }
+}
+
+impl<T: Display> From<ConflictableTransactionError<T>> for ErrorCode {
+    fn from(error: ConflictableTransactionError<T>) -> Self {
+        match error {
+            ConflictableTransactionError::Abort(e) => {
+                ErrorCode::TransactionAbort(format!("Transaction abort, cause: {}", e))
+            }
+            ConflictableTransactionError::Storage(e) => {
+                ErrorCode::TransactionError(format!("Transaction storage error, cause: {}", e))
+            }
+            _ => ErrorCode::MetaSrvError("Unexpect transaction error"),
+        }
+    }
+}
+
+impl<E: Display> From<TransactionError<E>> for ErrorCode {
+    fn from(error: TransactionError<E>) -> Self {
+        match error {
+            TransactionError::Abort(e) => {
+                ErrorCode::TransactionAbort(format!("Transaction abort, cause: {}", e))
+            }
+            TransactionError::Storage(e) => {
+                ErrorCode::TransactionError(format!("Transaction storage error, cause :{}", e))
+            }
+        }
     }
 }
 

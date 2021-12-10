@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,28 +25,22 @@ use common_tracing::tracing;
 
 use crate::pipelines::processors::EmptyProcessor;
 use crate::pipelines::processors::Processor;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 
 pub struct SourceTransform {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
     source_plan: ReadDataSourcePlan,
 }
 
 impl SourceTransform {
-    pub fn try_create(
-        ctx: DatabendQueryContextRef,
-        source_plan: ReadDataSourcePlan,
-    ) -> Result<Self> {
+    pub fn try_create(ctx: Arc<QueryContext>, source_plan: ReadDataSourcePlan) -> Result<Self> {
         Ok(SourceTransform { ctx, source_plan })
     }
 
     async fn read_table(&self) -> Result<SendableDataBlockStream> {
         let table = self.ctx.build_table_from_source_plan(&self.source_plan)?;
 
-        // TODO(xp): get_cluster_table_io_context() or
-        //           get_cluster_table_io_context()?
-        let io_ctx = Arc::new(self.ctx.get_cluster_table_io_context()?);
-        let table_stream = table.read(io_ctx, &self.source_plan);
+        let table_stream = table.read(self.ctx.clone(), &self.source_plan);
         let progress_stream =
             ProgressStream::try_create(table_stream.await?, self.ctx.progress_callback()?)?;
 

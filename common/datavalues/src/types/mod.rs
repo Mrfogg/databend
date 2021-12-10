@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,15 @@
 mod data_df_type;
 mod data_type;
 mod data_type_coercion;
+mod date_converter;
+mod deserializations;
 mod physical_data_type;
 mod serializations;
 
 pub use data_df_type::*;
 pub use data_type::*;
 pub use data_type_coercion::*;
+pub use date_converter::*;
+pub use deserializations::*;
 pub use physical_data_type::*;
 pub use serializations::*;

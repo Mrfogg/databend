@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
 use std::fmt;
 
 use async_raft::NodeId;
@@ -24,6 +23,7 @@ use crate::MatchSeq;
 use crate::Node;
 use crate::Operation;
 use crate::TableMeta;
+use crate::UpsertTableOptionReq;
 
 /// A Cmd describes what a user want to do to raft state machine
 /// and is the essential part of a raft log.
@@ -37,7 +37,7 @@ pub enum Cmd {
     AddNode { node_id: NodeId, node: Node },
 
     /// Add a database if absent
-    CreateDatabase { name: String },
+    CreateDatabase { name: String, engine: String },
 
     /// Drop a database if absent
     DropDatabase { name: String },
@@ -59,18 +59,7 @@ pub enum Cmd {
     ///
     /// With mismatched seq, it returns a unchanged state: (prev:TableMeta, prev:TableMeta)
     /// Otherwise it returns the TableMeta before and after update.
-    UpsertTableOptions {
-        table_id: u64,
-
-        /// The exact version of a table to operate on.
-        seq: MatchSeq,
-
-        /// Add or remove options
-        ///
-        /// Some(String): add or update an option.
-        /// None: delete an option.
-        table_options: HashMap<String, Option<String>>,
-    },
+    UpsertTableOptions(UpsertTableOptionReq),
 
     /// Update or insert a general purpose kv store
     UpsertKV {
@@ -99,8 +88,8 @@ impl fmt::Display for Cmd {
             Cmd::AddNode { node_id, node } => {
                 write!(f, "add_node:{}={}", node_id, node)
             }
-            Cmd::CreateDatabase { name } => {
-                write!(f, "create_db:{}", name)
+            Cmd::CreateDatabase { name, engine } => {
+                write!(f, "create_db:{} engine: {}", name, engine)
             }
             Cmd::DropDatabase { name } => {
                 write!(f, "drop_db:{}", name)
@@ -130,15 +119,11 @@ impl fmt::Display for Cmd {
                     key, seq, value, value_meta
                 )
             }
-            Cmd::UpsertTableOptions {
-                table_id,
-                seq,
-                table_options,
-            } => {
+            Cmd::UpsertTableOptions(req) => {
                 write!(
                     f,
                     "upsert-table-options: table-id:{}({:?}) = {:?}",
-                    table_id, seq, table_options
+                    req.table_id, req.seq, req.options
                 )
             }
         }

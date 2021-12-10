@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::convert::Infallible;
+use std::convert::TryInto;
 use std::fmt::Debug;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -23,11 +25,16 @@ use common_exception::prelude::ErrorCode;
 use common_exception::ToErrorCode;
 use common_meta_sled_store::get_sled_db;
 use common_meta_sled_store::sled;
+use common_meta_sled_store::sled::transaction::UnabortableTransactionError;
 use common_meta_sled_store::AsKeySpace;
+use common_meta_sled_store::AsTxnKeySpace;
 use common_meta_sled_store::SledKeySpace;
 use common_meta_sled_store::SledTree;
+use common_meta_sled_store::Store;
+use common_meta_sled_store::TransactionSledTree;
 use common_meta_types::Change;
 use common_meta_types::Cmd;
+use common_meta_types::DatabaseMeta;
 use common_meta_types::KVMeta;
 use common_meta_types::LogEntry;
 use common_meta_types::LogId;
@@ -37,16 +44,16 @@ use common_meta_types::Node;
 use common_meta_types::NodeId;
 use common_meta_types::Operation;
 use common_meta_types::SeqV;
-use common_meta_types::TableIdent;
-use common_meta_types::TableInfo;
 use common_meta_types::TableMeta;
 use common_tracing::tracing;
 use serde::Deserialize;
 use serde::Serialize;
+use sled::transaction::ConflictableTransactionError;
 use sled::IVec;
 
 use crate::config::RaftConfig;
 use crate::sled_key_spaces::ClientLastResps;
+use crate::sled_key_spaces::DatabaseLookup;
 use crate::sled_key_spaces::Databases;
 use crate::sled_key_spaces::GenericKV;
 use crate::sled_key_spaces::Nodes;
@@ -75,6 +82,8 @@ const SEQ_DATABASE_META_ID: &str = "database_meta_id";
 // const TREE_NODES: &str = "nodes";
 // const TREE_META: &str = "meta";
 const TREE_STATE_MACHINE: &str = "state_machine";
+
+type TxnResult<T> = std::result::Result<T, UnabortableTransactionError>;
 
 /// The state machine of the `MemStore`.
 /// It includes user data and two raft-related informations:
@@ -239,52 +248,56 @@ impl StateMachine {
     /// will be made and the previous resp is returned. In this way a client is able to re-send a
     /// command safely in case of network failure etc.
     #[tracing::instrument(level = "trace", skip(self))]
-    pub async fn apply(
-        &mut self,
-        entry: &Entry<LogEntry>,
-    ) -> common_exception::Result<AppliedState> {
+    pub async fn apply(&self, entry: &Entry<LogEntry>) -> common_exception::Result<AppliedState> {
         // TODO(xp): all update need to be done in a tx.
 
         let log_id = &entry.log_id;
 
-        let sm_meta = self.sm_meta();
-        sm_meta
-            .insert(&LastApplied, &StateMachineMetaValue::LogId(*log_id))
-            .await?;
+        let result = self.sm_tree.txn(true, move |txn_tree| {
+            let txn_sm_meta = txn_tree.key_space::<StateMachineMeta>();
+            txn_sm_meta.insert(&LastApplied, &StateMachineMetaValue::LogId(*log_id))?;
 
-        match entry.payload {
-            EntryPayload::Blank => {}
-            EntryPayload::Normal(ref norm) => {
-                let data = &norm.data;
-                if let Some(ref txid) = data.txid {
-                    if let Some((serial, resp)) = self.get_client_last_resp(&txid.client)? {
+            match entry.payload {
+                EntryPayload::Blank => {}
+                EntryPayload::Normal(ref norm) => {
+                    let data = &norm.data;
+                    if let Some(ref txid) = data.txid {
+                        let (serial, resp) = self.txn_get_client_last_resp(&txid.client, &txn_tree);
                         if serial == txid.serial {
-                            return Ok(resp);
+                            return Ok(Some(resp));
                         }
                     }
-                }
 
-                let resp = self.apply_cmd(&data.cmd).await?;
+                    let resp = self.apply_cmd(&data.cmd, &txn_tree).unwrap();
 
-                if let Some(ref txid) = data.txid {
-                    self.client_last_resp_update(&txid.client, (txid.serial, resp.clone()))
-                        .await?;
+                    if let Some(ref txid) = data.txid {
+                        self.txn_client_last_resp_update(
+                            &txid.client,
+                            (txid.serial, resp.clone()),
+                            &txn_tree,
+                        );
+                    }
+                    return Ok(Some(resp));
                 }
-                return Ok(resp);
-            }
-            EntryPayload::ConfigChange(ref mem) => {
-                sm_meta
-                    .insert(
+                EntryPayload::ConfigChange(ref mem) => {
+                    txn_sm_meta.insert(
                         &LastMembership,
                         &StateMachineMetaValue::Membership(mem.membership.clone()),
-                    )
-                    .await?;
-                return Ok(AppliedState::None);
-            }
-            EntryPayload::SnapshotPointer(_) => {}
+                    )?;
+                    return Ok(Some(AppliedState::None));
+                }
+                EntryPayload::SnapshotPointer(_) => {}
+            };
+
+            Ok(None)
+        })?;
+
+        let result = match result {
+            Some(r) => r,
+            None => AppliedState::None,
         };
 
-        Ok(AppliedState::None)
+        Ok(result)
     }
 
     /// Apply a `Cmd` to state machine.
@@ -292,68 +305,179 @@ impl StateMachine {
     /// Already applied log should be filtered out before passing into this function.
     /// This is the only entry to modify state machine.
     /// The `cmd` is always committed by raft before applying.
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn apply_cmd(&self, cmd: &Cmd) -> common_exception::Result<AppliedState> {
+    #[tracing::instrument(level = "debug", skip(self, txn_tree))]
+    pub fn apply_cmd(
+        &self,
+        cmd: &Cmd,
+        txn_tree: &TransactionSledTree,
+    ) -> common_exception::Result<AppliedState> {
         match cmd {
-            Cmd::IncrSeq { ref key } => Ok(self.incr_seq(key).await?.into()),
+            Cmd::IncrSeq { ref key } => {
+                let r = self.txn_incr_seq(key, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
+
+                Ok(r.into())
+            }
 
             Cmd::AddNode {
                 ref node_id,
                 ref node,
             } => {
-                let sm_nodes = self.nodes();
+                let sm_nodes = txn_tree.key_space::<Nodes>();
 
-                let prev = sm_nodes.get(node_id)?;
+                let prev = sm_nodes.get(node_id).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 if prev.is_some() {
                     Ok((prev, None).into())
                 } else {
-                    sm_nodes.insert(node_id, node).await?;
+                    sm_nodes.insert(node_id, node).map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
                     tracing::info!("applied AddNode: {}={:?}", node_id, node);
                     Ok((prev, Some(node.clone())).into())
                 }
             }
 
-            Cmd::CreateDatabase { ref name } => {
-                let db_id = self.incr_seq(SEQ_DATABASE_ID).await?;
+            Cmd::CreateDatabase {
+                ref name,
+                ref engine,
+            } => {
+                let db_id = self.txn_incr_seq(SEQ_DATABASE_ID, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
-                let dbs = self.databases();
+                let db_lookup_tree = txn_tree.key_space::<DatabaseLookup>();
 
                 let (prev, result) = self
-                    .sub_tree_upsert(
-                        dbs,
+                    .sub_txn_tree_upsert(
+                        &db_lookup_tree,
                         name,
                         &MatchSeq::Exact(0),
                         Operation::Update(db_id),
                         None,
                     )
-                    .await?;
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
 
                 // if it is just created
                 if prev.is_none() && result.is_some() {
                     // TODO(xp): reconsider this impl. it may not be required.
-                    self.incr_seq(SEQ_DATABASE_META_ID).await?;
+                    self.txn_incr_seq(SEQ_DATABASE_META_ID, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+                } else {
+                    // exist
+                    let db_id = prev.unwrap().data;
+                    let prev = self
+                        .txn_get_database_meta_by_id(&db_id, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+                    if let Some(prev) = prev {
+                        return Ok(AppliedState::DatabaseMeta(Change::nochange_with_id(
+                            db_id,
+                            Some(prev),
+                        )));
+                    }
                 }
 
-                tracing::debug!("applied create Database: {} {:?}", name, result);
-                Ok(Change::new(prev, result).into())
+                let dbs = txn_tree.key_space::<Databases>();
+                let (prev_meta, result_meta) = self
+                    .sub_txn_tree_upsert(
+                        &dbs,
+                        &db_id,
+                        &MatchSeq::Exact(0),
+                        Operation::Update(DatabaseMeta {
+                            engine: engine.clone(),
+                        }),
+                        None,
+                    )
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
+
+                if prev_meta.is_none() && result_meta.is_some() {
+                    self.txn_incr_seq(SEQ_DATABASE_META_ID, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+                }
+
+                tracing::debug!(
+                    "applied create Database: {}, db_id: {}, meta: {:?}",
+                    name,
+                    db_id,
+                    result
+                );
+
+                Ok(AppliedState::DatabaseMeta(Change::new_with_id(
+                    db_id,
+                    prev_meta,
+                    result_meta,
+                )))
             }
 
             Cmd::DropDatabase { ref name } => {
-                let dbs = self.databases();
+                let dbs = txn_tree.key_space::<DatabaseLookup>();
 
                 let (prev, result) = self
-                    .sub_tree_upsert(dbs, name, &MatchSeq::Any, Operation::Delete, None)
-                    .await?;
+                    .sub_txn_tree_upsert(&dbs, name, &MatchSeq::Any, Operation::Delete, None)
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
+
+                assert!(
+                    result.is_none(),
+                    "delete with MatchSeq::Any always succeeds"
+                );
 
                 // if it is just deleted
-                if prev.is_some() && result.is_none() {
+                if let Some(seq_db_id) = prev {
                     // TODO(xp): reconsider this impl. it may not be required.
-                    self.incr_seq(SEQ_DATABASE_META_ID).await?;
+                    self.txn_incr_seq(SEQ_DATABASE_META_ID, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+
+                    let db_id = seq_db_id.data;
+
+                    let dbs = txn_tree.key_space::<Databases>();
+                    let (prev_meta, result_meta) = self
+                        .sub_txn_tree_upsert(&dbs, &db_id, &MatchSeq::Any, Operation::Delete, None)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+
+                    tracing::debug!("applied drop Database: {} {:?}", name, result);
+
+                    return Ok(AppliedState::DatabaseMeta(Change::new_with_id(
+                        db_id,
+                        prev_meta,
+                        result_meta,
+                    )));
                 }
 
+                // not exist
+
                 tracing::debug!("applied drop Database: {} {:?}", name, result);
-                Ok(Change::new(prev, result).into())
+                Ok(AppliedState::DatabaseMeta(Change::new(None, None)))
             }
 
             Cmd::CreateTable {
@@ -361,100 +485,144 @@ impl StateMachine {
                 ref table_name,
                 ref table_meta,
             } => {
-                let db_id = self.get_db_id(db_name).await?;
+                let db_id = self.txn_get_database_id(db_name, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 let lookup_key = TableLookupKey {
-                    database_id: db_id,
+                    database_id: db_id.unwrap(),
                     table_name: table_name.to_string(),
                 };
 
-                let table_lookup_tree = self.table_lookup();
-                let seq_table_id = table_lookup_tree.get(&lookup_key)?;
+                let table_lookup_tree = txn_tree.key_space::<TableLookup>();
+                let seq_table_id = table_lookup_tree.get(&lookup_key).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 if let Some(u) = seq_table_id {
                     let table_id = u.data.0;
 
-                    let prev = self.get_table_by_id(&table_id)?;
-                    let prev = prev.map(|x| TableIdent::new(table_id, x.seq));
-                    return Ok((prev.clone(), prev).into());
+                    let prev = self
+                        .txn_get_table_meta_by_id(&table_id, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
+
+                    return Ok(AppliedState::TableMeta(Change::nochange_with_id(
+                        table_id, prev,
+                    )));
                 }
 
                 let table_meta = table_meta.clone();
-                let table_id = self.incr_seq(SEQ_TABLE_ID).await?;
+                let table_id = self.txn_incr_seq(SEQ_TABLE_ID, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
-                self.sub_tree_upsert(
-                    table_lookup_tree,
+                self.sub_txn_tree_upsert(
+                    &table_lookup_tree,
                     &lookup_key,
                     &MatchSeq::Exact(0),
                     Operation::Update(TableLookupValue(table_id)),
                     None,
                 )
-                .await?;
+                .map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
+                let table_tree = txn_tree.key_space::<Tables>();
                 let (prev, result) = self
-                    .sub_tree_upsert(
-                        self.tables(),
+                    .sub_txn_tree_upsert(
+                        &table_tree,
                         &table_id,
                         &MatchSeq::Exact(0),
                         Operation::Update(table_meta),
                         None,
                     )
-                    .await?;
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
 
                 tracing::debug!("applied create Table: {}={:?}", table_name, result);
 
                 if prev.is_none() && result.is_some() {
-                    self.incr_seq(SEQ_DATABASE_META_ID).await?;
+                    self.txn_incr_seq(SEQ_DATABASE_META_ID, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
                 }
 
-                Ok(AppliedState::TableIdent {
-                    prev: prev.map(|x| TableIdent::new(table_id, x.seq)),
-                    result: result.map(|x| TableIdent::new(table_id, x.seq)),
-                })
+                Ok(AppliedState::TableMeta(Change::new_with_id(
+                    table_id, prev, result,
+                )))
             }
 
             Cmd::DropTable {
                 ref db_name,
                 ref table_name,
             } => {
-                let db_id = self.get_db_id(db_name).await?;
+                let db_id = self.txn_get_database_id(db_name, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 let lookup_key = TableLookupKey {
-                    database_id: db_id,
+                    database_id: db_id.unwrap(),
                     table_name: table_name.to_string(),
                 };
 
-                let table_lookup_tree = self.table_lookup();
-                let seq_table_id = table_lookup_tree.get(&lookup_key)?;
+                let table_lookup_tree = txn_tree.key_space::<TableLookup>();
+                let seq_table_id = table_lookup_tree.get(&lookup_key).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 if seq_table_id.is_none() {
                     return Ok(Change::<TableMeta>::new(None, None).into());
                 }
 
-                self.sub_tree_upsert(
-                    table_lookup_tree,
+                let table_id = seq_table_id.unwrap().data.0;
+
+                self.sub_txn_tree_upsert(
+                    &table_lookup_tree,
                     &lookup_key,
                     &MatchSeq::Any,
                     Operation::Delete,
                     None,
                 )
-                .await?;
+                .map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
-                let tables = self.tables();
+                let tables = txn_tree.key_space::<Tables>();
                 let (prev, result) = self
-                    .sub_tree_upsert(
-                        tables,
-                        &seq_table_id.unwrap().data.0,
+                    .sub_txn_tree_upsert(
+                        &tables,
+                        &table_id,
                         &MatchSeq::Any,
                         Operation::Delete,
                         None,
                     )
-                    .await?;
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
                 if prev.is_some() && result.is_none() {
-                    self.incr_seq(SEQ_DATABASE_META_ID).await?;
+                    self.txn_incr_seq(SEQ_DATABASE_META_ID, txn_tree)
+                        .map_err(|e| {
+                            let e: ConflictableTransactionError<Infallible> = e.into();
+                            ErrorCode::from(e)
+                        })?;
                 }
                 tracing::debug!("applied drop Table: {} {:?}", table_name, result);
-                Ok(Change::new(prev, result).into())
+                Ok(Change::new_with_id(table_id, prev, result).into())
             }
 
             Cmd::UpsertKV {
@@ -463,30 +631,31 @@ impl StateMachine {
                 value: value_op,
                 value_meta,
             } => {
+                let sub_tree = txn_tree.key_space::<GenericKV>();
                 let (prev, result) = self
-                    .sub_tree_upsert(self.kvs(), key, seq, value_op.clone(), value_meta.clone())
-                    .await?;
+                    .sub_txn_tree_upsert(&sub_tree, key, seq, value_op.clone(), value_meta.clone())
+                    .map_err(|e| {
+                        let e: ConflictableTransactionError<Infallible> = e.into();
+                        ErrorCode::from(e)
+                    })?;
 
                 tracing::debug!("applied UpsertKV: {} {:?}", key, result);
                 Ok(Change::new(prev, result).into())
             }
 
-            Cmd::UpsertTableOptions {
-                ref table_id,
-                ref seq,
-                ref table_options,
-            } => {
-                let prev = self.tables().get(table_id)?;
+            Cmd::UpsertTableOptions(ref req) => {
+                let table_tree = txn_tree.key_space::<Tables>();
+                let prev = table_tree.get(&req.table_id).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
                 // Unlike other Cmd, prev to be None is not allowed for upsert-options.
-                let prev = match prev {
-                    None => {
-                        return Err(ErrorCode::UnknownTableId(format!("table_id:{}", table_id)))
-                    }
-                    Some(x) => x,
-                };
+                let prev = prev.ok_or_else(|| {
+                    ErrorCode::UnknownTableId(format!("table_id:{}", req.table_id))
+                })?;
 
-                if seq.match_seq(&prev).is_err() {
+                if req.seq.match_seq(&prev).is_err() {
                     let res = AppliedState::TableMeta(Change::new(Some(prev.clone()), Some(prev)));
                     return Ok(res);
                 }
@@ -495,7 +664,7 @@ impl StateMachine {
                 let mut table_meta = prev.data.clone();
                 let opts = &mut table_meta.options;
 
-                for (k, opt_v) in table_options {
+                for (k, opt_v) in &req.options {
                     match opt_v {
                         None => {
                             opts.remove(k);
@@ -506,16 +675,26 @@ impl StateMachine {
                     }
                 }
 
-                let new_seq = self.incr_seq(Tables::NAME).await?;
+                let new_seq = self.txn_incr_seq(Tables::NAME, txn_tree).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
                 let sv = SeqV {
                     seq: new_seq,
                     meta,
                     data: table_meta,
                 };
 
-                self.tables().insert(table_id, &sv).await?;
+                table_tree.insert(&req.table_id, &sv).map_err(|e| {
+                    let e: ConflictableTransactionError<Infallible> = e.into();
+                    ErrorCode::from(e)
+                })?;
 
-                Ok(AppliedState::TableMeta(Change::new(Some(prev), Some(sv))))
+                Ok(AppliedState::TableMeta(Change::new_with_id(
+                    req.table_id,
+                    Some(prev),
+                    Some(sv),
+                )))
             }
         }
     }
@@ -552,9 +731,6 @@ impl StateMachine {
         Ok((prev, result))
     }
 
-    /// Update a record into a sled tree sub tree, defined by a KeySpace, without seq check.
-    ///
-    /// TODO(xp); this should be a method of sled sub tree
     async fn sub_tree_do_update<'s, V, KS>(
         &'s self,
         sub_tree: &AsKeySpace<'s, KS>,
@@ -588,36 +764,124 @@ impl StateMachine {
         Ok(Some(seq_kv_value))
     }
 
+    fn txn_incr_seq(&self, key: &str, txn_tree: &TransactionSledTree) -> TxnResult<u64> {
+        let seq_sub_tree = txn_tree.key_space::<Sequences>();
+
+        let key = key.to_string();
+        let curr = seq_sub_tree.update_and_fetch(&key, |old| Some(old.unwrap_or_default() + 1))?;
+        let curr = curr.unwrap();
+
+        tracing::debug!("applied IncrSeq: {}={}", key, curr);
+
+        Ok(curr.0)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn sub_txn_tree_upsert<'s, V, KS>(
+        &'s self,
+        sub_tree: &AsTxnKeySpace<'s, KS>,
+        key: &KS::K,
+        seq: &MatchSeq,
+        value_op: Operation<V>,
+        value_meta: Option<KVMeta>,
+    ) -> TxnResult<(Option<SeqV<V>>, Option<SeqV<V>>)>
+    where
+        V: Clone + Debug,
+        KS: SledKeySpace<V = SeqV<V>>,
+    {
+        let prev = sub_tree.get(key).unwrap();
+
+        // If prev is timed out, treat it as a None.
+        let prev = Self::unexpired_opt(prev);
+
+        if seq.match_seq(&prev).is_err() {
+            return Ok((prev.clone(), prev));
+        }
+
+        // result is the state after applying an operation.
+        let result =
+            self.sub_txn_tree_do_update(sub_tree, key, prev.clone(), value_meta, value_op)?;
+
+        tracing::debug!("applied upsert: {} {:?}", key, result);
+        Ok((prev, result))
+    }
+
+    /// Update a record into a sled tree sub tree, defined by a KeySpace, without seq check.
+    ///
+    /// TODO(xp); this should be a method of sled sub tree
+    fn sub_txn_tree_do_update<'s, V, KS>(
+        &'s self,
+        sub_tree: &AsTxnKeySpace<'s, KS>,
+        key: &KS::K,
+        prev: Option<SeqV<V>>,
+        value_meta: Option<KVMeta>,
+        value_op: Operation<V>,
+    ) -> TxnResult<Option<SeqV<V>>>
+    where
+        V: Clone + Debug,
+        KS: SledKeySpace<V = SeqV<V>>,
+    {
+        let mut seq_kv_value = match value_op {
+            Operation::Update(v) => SeqV::with_meta(0, value_meta, v),
+            Operation::Delete => {
+                sub_tree.remove(key).unwrap();
+                return Ok(None);
+            }
+            Operation::AsIs => match prev {
+                None => return Ok(None),
+                Some(ref prev_kv_value) => prev_kv_value.clone().set_meta(value_meta),
+            },
+        };
+
+        seq_kv_value.seq = self.txn_incr_seq(KS::NAME, &*sub_tree)?;
+
+        sub_tree.insert(key, &seq_kv_value)?;
+
+        Ok(Some(seq_kv_value))
+    }
+
     #[allow(clippy::ptr_arg)]
-    async fn get_db_id(&self, db_name: &String) -> common_exception::Result<u64> {
+    pub fn get_database_id(&self, db_name: &String) -> common_exception::Result<u64> {
         let seq_dbi = self
-            .databases()
+            .database_lookup()
             .get(db_name)?
             .ok_or_else(|| ErrorCode::UnknownDatabase(db_name.to_string()))?;
 
         Ok(seq_dbi.data)
     }
 
-    async fn client_last_resp_update(
+    pub fn txn_get_database_id(
+        &self,
+        db_name: &str,
+        txn_tree: &TransactionSledTree,
+    ) -> TxnResult<Option<u64>> {
+        let txn_db_lookup = txn_tree.key_space::<DatabaseLookup>();
+        let seq_dbi = txn_db_lookup.get(&db_name.to_string())?.map(|x| x.data);
+
+        Ok(seq_dbi)
+    }
+
+    fn txn_client_last_resp_update(
         &self,
         key: &str,
         value: (u64, AppliedState),
-    ) -> common_exception::Result<AppliedState> {
+        txn_tree: &TransactionSledTree,
+    ) -> AppliedState {
         let v = ClientLastRespValue {
             req_serial_num: value.0,
             res: value.1.clone(),
         };
-        let kvs = self.client_last_resps();
-        kvs.insert(&key.to_string(), &v).await?;
+        let txn_ks = txn_tree.key_space::<ClientLastResps>();
+        txn_ks.insert(&key.to_string(), &v).unwrap(); // todo(ariesdevil): check error
 
-        Ok(value.1)
+        value.1
     }
 
     pub fn get_membership(&self) -> common_exception::Result<Option<MembershipConfig>> {
         let sm_meta = self.sm_meta();
         let mem = sm_meta
             .get(&StateMachineMetaKey::LastMembership)?
-            .map(MembershipConfig::from);
+            .map(|x| x.try_into().expect("Membership"));
 
         Ok(mem)
     }
@@ -626,7 +890,7 @@ impl StateMachine {
         let sm_meta = self.sm_meta();
         let last_applied = sm_meta
             .get(&LastApplied)?
-            .map(LogId::from)
+            .map(|x| x.try_into().expect("LogId"))
             .unwrap_or_default();
 
         Ok(last_applied)
@@ -646,6 +910,20 @@ impl StateMachine {
         Ok(Some((0, AppliedState::None)))
     }
 
+    pub fn txn_get_client_last_resp(
+        &self,
+        key: &str,
+        txn_tree: &TransactionSledTree,
+    ) -> (u64, AppliedState) {
+        let client_last_resps = txn_tree.key_space::<ClientLastResps>();
+        let v = client_last_resps.get(&key.to_string()).unwrap();
+
+        if let Some(resp) = v {
+            return (resp.req_serial_num, resp.res);
+        }
+        (0, AppliedState::None)
+    }
+
     #[allow(dead_code)]
     fn list_node_ids(&self) -> Vec<NodeId> {
         let sm_nodes = self.nodes();
@@ -657,23 +935,31 @@ impl StateMachine {
         sm_nodes.get(node_id)
     }
 
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub fn get_database(&self, name: &str) -> Result<Option<SeqV<u64>>, ErrorCode> {
-        let dbs = self.databases();
-        let x = dbs.get(&name.to_string())?;
+    pub fn get_nodes(&self) -> common_exception::Result<Vec<Node>> {
+        let sm_nodes = self.nodes();
+        sm_nodes.range_values(..)
+    }
+
+    pub fn get_database_meta_by_id(
+        &self,
+        db_id: &u64,
+    ) -> common_exception::Result<SeqV<DatabaseMeta>> {
+        let x = self
+            .databases()
+            .get(db_id)?
+            .ok_or_else(|| ErrorCode::UnknownDatabaseId(format!("database_id: {}", db_id)))?;
         Ok(x)
     }
 
-    pub fn get_databases(&self) -> Result<Vec<(String, u64)>, ErrorCode> {
-        let mut res = vec![];
+    pub fn txn_get_database_meta_by_id(
+        &self,
+        db_id: &u64,
+        txn_tree: &TransactionSledTree,
+    ) -> TxnResult<Option<SeqV<DatabaseMeta>>> {
+        let txn_databases = txn_tree.key_space::<Databases>();
+        let x = txn_databases.get(db_id)?;
 
-        let it = self.databases().range(..)?;
-        for r in it {
-            let (a, b) = r?;
-            res.push((a, b.data));
-        }
-
-        Ok(res)
+        Ok(x)
     }
 
     pub fn get_database_meta_ver(&self) -> common_exception::Result<Option<u64>> {
@@ -682,8 +968,23 @@ impl StateMachine {
         Ok(res.map(|x| x.0))
     }
 
-    pub fn get_table_by_id(&self, tid: &u64) -> Result<Option<SeqV<TableMeta>>, ErrorCode> {
+    // TODO(xp): need a better name.
+    pub fn get_table_meta_by_id(
+        &self,
+        tid: &u64,
+    ) -> common_exception::Result<Option<SeqV<TableMeta>>> {
         let x = self.tables().get(tid)?;
+        Ok(x)
+    }
+
+    pub fn txn_get_table_meta_by_id(
+        &self,
+        tid: &u64,
+        txn_tree: &TransactionSledTree,
+    ) -> TxnResult<Option<SeqV<TableMeta>>> {
+        let txn_table = txn_tree.key_space::<Tables>();
+        let x = txn_table.get(tid)?;
+
         Ok(x)
     }
 
@@ -701,58 +1002,8 @@ impl StateMachine {
         Ok(result)
     }
 
-    pub fn get_tables(&self, db_name: &str) -> Result<Vec<TableInfo>, ErrorCode> {
-        let db = self.get_database(db_name)?;
-        let db = match db {
-            Some(x) => x,
-            None => {
-                return Err(ErrorCode::UnknownDatabase(format!(
-                    "unknown database {}",
-                    db_name
-                )));
-            }
-        };
-
-        let db_id = db.data;
-
-        let mut tbls = vec![];
-        let tables = self.tables();
-        let tables_iter = self.table_lookup().range(..)?;
-        for r in tables_iter {
-            let (k, seq_table_id) = r?;
-
-            let got_db_id = k.database_id;
-            let table_name = k.table_name;
-
-            if got_db_id == db_id {
-                let table_id = seq_table_id.data.0;
-
-                let seq_table_meta = tables.get(&table_id)?.ok_or_else(|| {
-                    ErrorCode::IllegalMetaState(format!(" table of id {}, not found", table_id))
-                })?;
-
-                let version = seq_table_meta.seq;
-                let table_meta = seq_table_meta.data;
-
-                let table_info = TableInfo::new(
-                    db_name,
-                    &table_name,
-                    TableIdent::new(table_id, version),
-                    table_meta,
-                );
-
-                tbls.push(table_info);
-            }
-        }
-
-        Ok(tbls)
-    }
-
     pub fn unexpired_opt<V: Debug>(seq_value: Option<SeqV<V>>) -> Option<SeqV<V>> {
-        match seq_value {
-            None => None,
-            Some(sv) => Self::unexpired(sv),
-        }
+        seq_value.and_then(Self::unexpired)
     }
 
     pub fn unexpired<V: Debug>(seq_value: SeqV<V>) -> Option<SeqV<V>> {
@@ -786,6 +1037,20 @@ impl StateMachine {
             Some(seq_value)
         }
     }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn lookup_table_id(
+        &self,
+        db_id: u64,
+        name: &str,
+    ) -> Result<Option<SeqV<TableLookupValue>>, ErrorCode> {
+        self.table_lookup().get(
+            &(TableLookupKey {
+                database_id: db_id,
+                table_name: name.to_string(),
+            }),
+        )
+    }
 }
 
 /// Key space support
@@ -816,6 +1081,10 @@ impl StateMachine {
     }
 
     pub fn databases(&self) -> AsKeySpace<Databases> {
+        self.sm_tree.key_space()
+    }
+
+    pub fn database_lookup(&self) -> AsKeySpace<DatabaseLookup> {
         self.sm_tree.key_space()
     }
 

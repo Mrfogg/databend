@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 mod sources;
 mod stream;
 mod stream_abort;
+mod stream_cast;
 mod stream_correct_with_schema;
 mod stream_datablock;
 mod stream_limit_by;
@@ -28,6 +29,7 @@ mod stream_take;
 pub use sources::*;
 pub use stream::*;
 pub use stream_abort::AbortStream;
+pub use stream_cast::CastStream;
 pub use stream_correct_with_schema::CorrectWithSchemaStream;
 pub use stream_datablock::DataBlockStream;
 pub use stream_limit_by::LimitByStream;

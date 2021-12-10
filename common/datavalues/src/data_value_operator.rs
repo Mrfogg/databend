@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,6 +68,7 @@ pub enum DataValueArithmeticOperator {
     Minus,
     Mul,
     Div,
+    IntDiv,
     Modulo,
 }
 
@@ -78,6 +79,7 @@ impl std::fmt::Display for DataValueArithmeticOperator {
             DataValueArithmeticOperator::Minus => "minus",
             DataValueArithmeticOperator::Mul => "multiply",
             DataValueArithmeticOperator::Div => "divide",
+            DataValueArithmeticOperator::IntDiv => "div",
             DataValueArithmeticOperator::Modulo => "modulo",
         };
         write!(f, "{}", display)
@@ -100,4 +102,11 @@ impl std::fmt::Display for DataValueLogicOperator {
         };
         write!(f, "{}", display)
     }
+}
+
+pub trait IntDiv<Rhs = Self> {
+    type Output;
+
+    #[must_use]
+    fn int_div(self, rhs: Rhs) -> Self::Output;
 }

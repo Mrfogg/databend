@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,9 +23,9 @@ use std::os::raw::c_char;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use chrono_tz::Tz;
-use clickhouse_rs_cityhash_sys::city_hash_128;
 use lz4::liblz4::LZ4_compressBound;
 use lz4::liblz4::LZ4_compress_default;
+use naive_cityhash::cityhash128;
 
 pub use self::block_info::BlockInfo;
 pub use self::builder::RCons;
@@ -42,10 +42,10 @@ use crate::errors::Error;
 use crate::errors::FromSqlError;
 use crate::errors::Result;
 use crate::protocols;
+use crate::types::column;
 use crate::types::column::ArcColumnWrapper;
 use crate::types::column::Column;
 use crate::types::column::ColumnFrom;
-use crate::types::column::{self};
 use crate::types::ColumnType;
 use crate::types::Complex;
 use crate::types::FromSql;
@@ -205,10 +205,7 @@ impl Block {
 impl<K: ColumnType> Block<K> {
     /// Return the number of rows in the current block.
     pub fn row_count(&self) -> usize {
-        match self.columns.first() {
-            None => 0,
-            Some(column) => column.len(),
-        }
+        self.columns.first().map_or(0, |column| column.len())
     }
 
     /// Return the number of columns in the current block.
@@ -222,7 +219,7 @@ impl<K: ColumnType> Block<K> {
         &self.columns
     }
 
-    fn append_column(&mut self, column: Column<K>) {
+    pub fn append_column(&mut self, column: Column<K>) {
         let column_len = column.len();
 
         if !self.columns.is_empty() && self.row_count() != column_len {
@@ -367,7 +364,7 @@ impl<K: ColumnType> Block<K> {
                 cursor.write_u32::<LittleEndian>(tmp.len() as u32).unwrap();
             }
 
-            let hash = city_hash_128(&buf);
+            let hash = cityhash128(&buf);
             encoder.write(hash.lo);
             encoder.write(hash.hi);
             encoder.write_bytes(buf.as_ref());

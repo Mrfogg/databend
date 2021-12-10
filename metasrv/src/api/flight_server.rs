@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,19 +68,13 @@ impl FlightServer {
         let builder = Server::builder();
 
         let tls_conf = Self::tls_config(&self.conf).await.map_err(|e| {
-            ErrorCode::TLSConfigurationFailure(format!(
-                "failed to build ServerTlsConfig, {}",
-                e.to_string()
-            ))
+            ErrorCode::TLSConfigurationFailure(format!("failed to build ServerTlsConfig, {}", e))
         })?;
 
         let mut builder = if let Some(conf) = tls_conf {
             tracing::info!("TLS RPC enabled");
             builder.tls_config(conf).map_err(|e| {
-                ErrorCode::TLSConfigurationFailure(format!(
-                    "server tls_config failure {}",
-                    e.to_string()
-                ))
+                ErrorCode::TLSConfigurationFailure(format!("server tls_config failure {}", e))
             })?
         } else {
             builder
@@ -146,20 +140,26 @@ impl FlightServer {
 
                 match futures::future::select(f, j).await {
                     Either::Left((_x, j)) => {
+                        tracing::info!("received force shutdown signal");
                         // force shutdown signal received.
                         j.abort();
                     }
                     Either::Right((_, _)) => {
+                        tracing::info!("Done: graceful force shutdown");
                         // graceful shutdown finished.
                     }
                 }
             } else {
+                tracing::info!("no force signal, block waiting for join handle for ever");
                 let _ = j.await;
+                tracing::info!("Done: waiting for join handle for ever");
             }
         }
 
         if let Some(rx) = self.fin_rx.take() {
+            tracing::info!("block waiting for fin_rx");
             let _ = rx.await;
+            tracing::info!("Done: block waiting for fin_rx");
         }
         Ok(())
     }

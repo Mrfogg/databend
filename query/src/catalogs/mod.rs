@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,20 +13,19 @@
 // limitations under the License.
 //
 
-pub use catalog::Catalog;
-pub use database::Database;
-pub use impls::in_memory_meta::InMemoryMetas;
-pub use table::Table;
-pub use table::TablePtr;
-pub use table::ToReadDataSourcePlan;
-pub use table_function::TableFunction;
-pub use table_id_ranges::*;
-
 mod catalog;
-mod database;
-mod table;
-mod table_function;
+mod catalog_context;
 mod table_id_ranges;
+mod table_memory_meta;
 
-pub mod backends;
-pub mod impls;
+mod backends;
+mod impls;
+
+pub use backends::MetaRemote;
+pub use catalog::Catalog;
+pub use catalog_context::CatalogContext;
+pub use impls::DatabaseCatalog;
+pub use impls::ImmutableCatalog;
+pub use impls::MutableCatalog;
+pub use table_id_ranges::*;
+pub use table_memory_meta::InMemoryMetas;

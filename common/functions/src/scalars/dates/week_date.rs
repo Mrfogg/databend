@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ use common_exception::Result;
 use crate::scalars::function_factory::FunctionDescription;
 use crate::scalars::function_factory::FunctionFeatures;
 use crate::scalars::Function;
+use crate::scalars::Monotonicity;
 
 #[derive(Clone, Debug)]
 pub struct WeekFunction<T, R> {
@@ -42,6 +43,11 @@ pub trait WeekResultFunction<R> {
     fn return_type() -> Result<DataType>;
     fn to_number(_value: DateTime<Utc>, mode: Option<u64>) -> R;
     fn to_constant_value(_value: DateTime<Utc>, mode: Option<u64>) -> DataValue;
+    fn factor_function() -> Result<Box<dyn Function>> {
+        Err(ErrorCode::UnknownException(
+            "Always monotonous, has no factor function",
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -85,7 +91,7 @@ where
     }
 
     pub fn desc() -> FunctionDescription {
-        let mut features = FunctionFeatures::default();
+        let mut features = FunctionFeatures::default().monotonicity();
 
         if T::IS_DETERMINISTIC {
             features = features.deterministic();
@@ -188,6 +194,28 @@ where
                 self.name()))),
         }?;
         Ok(number_array)
+    }
+
+    fn get_monotonicity(&self, args: &[Monotonicity]) -> Result<Monotonicity> {
+        let func = match T::factor_function() {
+            Ok(f) => f,
+            Err(_) => return Ok(Monotonicity::clone_without_range(&args[0])),
+        };
+
+        if args[0].left.is_none() || args[0].right.is_none() {
+            return Ok(Monotonicity::default());
+        }
+
+        let left_val = func.eval(&[args[0].left.clone().unwrap()], 1)?.try_get(0)?;
+        let right_val = func
+            .eval(&[args[0].right.clone().unwrap()], 1)?
+            .try_get(0)?;
+        // The function is monotonous, if the factor eval returns the same values for them.
+        if left_val == right_val {
+            return Ok(Monotonicity::clone_without_range(&args[0]));
+        }
+
+        Ok(Monotonicity::default())
     }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ pub use crate::DataValueComparisonOperator;
 pub use crate::DataValueComparisonOperator::*;
 pub use crate::DataValueLogicOperator;
 pub use crate::DataValueLogicOperator::*;
+pub use crate::IntDiv;
 
 pub type AlignedVec<T> = common_arrow::arrow::buffer::MutableBuffer<T>;
 pub type LargeBinaryArray = common_arrow::arrow::array::BinaryArray<i64>;

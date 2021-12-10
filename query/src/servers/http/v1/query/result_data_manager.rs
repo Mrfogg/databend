@@ -23,9 +23,11 @@ use common_datavalues::DataSchemaRef;
 use common_exception::ErrorCode;
 use common_exception::Result;
 
-use crate::servers::http::v1::block_to_json::block_to_json;
-use crate::servers::http::v1::block_to_json::JsonBlock;
-use crate::servers::http::v1::block_to_json::JsonBlockRef;
+use crate::servers::http::v1::block_to_json;
+use crate::servers::http::v1::JsonBlock;
+use crate::servers::http::v1::JsonBlockRef;
+
+const TARGET_ROWS_PER_PAGE: usize = 10000;
 
 #[derive(Debug)]
 pub enum Wait {
@@ -99,7 +101,8 @@ impl ResultDataManager {
                 .ok_or_else(|| ErrorCode::UnexpectedError("last_page is None"))?
                 .clone())
         } else {
-            Err(ErrorCode::LogicalError("page no too large"))
+            let message = format!("wrong page number {}", page_no,);
+            Err(ErrorCode::HttpNotFound(message))
         }
     }
 
@@ -110,20 +113,12 @@ impl ResultDataManager {
         use Wait::*;
         match tp {
             Async => block_rx.try_recv(),
-            Sync => match block_rx.recv().await {
-                Some(block) => Ok(block),
-                None => Err(TryRecvError::Disconnected),
-            },
+            Sync => block_rx.recv().await.ok_or(TryRecvError::Disconnected),
             Deadline(t) => {
                 let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(*t));
                 tokio::select! {
                     biased;
-                    block = block_rx.recv() => {
-                         match block {
-                            Some(block) => Ok(block),
-                            None => Err(TryRecvError::Disconnected)
-                        }
-                    }
+                    block = block_rx.recv() => block.ok_or(TryRecvError::Disconnected),
                     _ = sleep => Err(TryRecvError::Empty)
                 }
             }
@@ -132,12 +127,20 @@ impl ResultDataManager {
 
     pub async fn collect_new_page(&mut self, tp: &Wait) -> (JsonBlock, bool) {
         let mut results: Vec<JsonBlock> = Vec::new();
+        let mut rows = 0;
         let block_rx = &mut self.block_rx;
 
         let mut end = false;
         loop {
             match ResultDataManager::receive(block_rx, tp).await {
-                Ok(block) => results.push(block_to_json(&block).unwrap()),
+                Ok(block) => {
+                    rows += block.num_rows();
+                    results.push(block_to_json(&block).unwrap());
+                    // TODO(youngsofun):  set it in post if needed
+                    if rows >= TARGET_ROWS_PER_PAGE {
+                        break;
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     log::debug!("no more data");

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,12 +19,15 @@ use crate::plan_subqueries_set::SubQueriesSetPlan;
 use crate::AggregatorFinalPlan;
 use crate::AggregatorPartialPlan;
 use crate::AlterUserPlan;
+use crate::CopyPlan;
 use crate::CreateDatabasePlan;
 use crate::CreateTablePlan;
 use crate::CreateUserPlan;
+use crate::CreateUserStagePlan;
 use crate::DescribeTablePlan;
 use crate::DropDatabasePlan;
 use crate::DropTablePlan;
+use crate::DropUserPlan;
 use crate::EmptyPlan;
 use crate::ExplainPlan;
 use crate::Expression;
@@ -32,7 +35,7 @@ use crate::ExpressionPlan;
 use crate::FilterPlan;
 use crate::GrantPrivilegePlan;
 use crate::HavingPlan;
-use crate::InsertIntoPlan;
+use crate::InsertPlan;
 use crate::KillPlan;
 use crate::LimitByPlan;
 use crate::LimitPlan;
@@ -40,9 +43,11 @@ use crate::PlanNode;
 use crate::ProjectionPlan;
 use crate::ReadDataSourcePlan;
 use crate::RemotePlan;
+use crate::RevokePrivilegePlan;
 use crate::SelectPlan;
 use crate::SettingPlan;
 use crate::ShowCreateTablePlan;
+use crate::SinkPlan;
 use crate::SortPlan;
 use crate::StagePlan;
 use crate::TruncateTablePlan;
@@ -116,13 +121,18 @@ pub trait PlanVisitor {
             PlanNode::Remote(plan) => self.visit_remote(plan),
             PlanNode::Having(plan) => self.visit_having(plan),
             PlanNode::Expression(plan) => self.visit_expression(plan),
-            PlanNode::InsertInto(plan) => self.visit_insert_into(plan),
+            PlanNode::Insert(plan) => self.visit_insert_into(plan),
+            PlanNode::Copy(plan) => self.visit_copy(plan),
             PlanNode::ShowCreateTable(plan) => self.visit_show_create_table(plan),
             PlanNode::SubQueryExpression(plan) => self.visit_sub_queries_sets(plan),
             PlanNode::Kill(plan) => self.visit_kill_query(plan),
             PlanNode::CreateUser(plan) => self.visit_create_user(plan),
             PlanNode::AlterUser(plan) => self.visit_alter_user(plan),
+            PlanNode::DropUser(plan) => self.visit_drop_user(plan),
             PlanNode::GrantPrivilege(plan) => self.visit_grant_privilege(plan),
+            PlanNode::RevokePrivilege(plan) => self.visit_revoke_privilege(plan),
+            PlanNode::Sink(plan) => self.visit_append(plan),
+            PlanNode::CreateUserStage(plan) => self.visit_create_stage(plan),
         }
     }
 
@@ -250,7 +260,15 @@ pub trait PlanVisitor {
         Ok(())
     }
 
+    fn visit_drop_user(&mut self, _: &DropUserPlan) -> Result<()> {
+        Ok(())
+    }
+
     fn visit_grant_privilege(&mut self, _: &GrantPrivilegePlan) -> Result<()> {
+        Ok(())
+    }
+
+    fn visit_revoke_privilege(&mut self, _: &RevokePrivilegePlan) -> Result<()> {
         Ok(())
     }
 
@@ -270,7 +288,11 @@ pub trait PlanVisitor {
         Ok(())
     }
 
-    fn visit_insert_into(&mut self, _: &InsertIntoPlan) -> Result<()> {
+    fn visit_insert_into(&mut self, _: &InsertPlan) -> Result<()> {
+        Ok(())
+    }
+
+    fn visit_copy(&mut self, _: &CopyPlan) -> Result<()> {
         Ok(())
     }
 
@@ -283,6 +305,13 @@ pub trait PlanVisitor {
     }
 
     fn visit_kill_query(&mut self, _: &KillPlan) -> Result<()> {
+        Ok(())
+    }
+    fn visit_append(&mut self, _: &SinkPlan) -> Result<()> {
+        Ok(())
+    }
+
+    fn visit_create_stage(&mut self, _: &CreateUserStagePlan) -> Result<()> {
         Ok(())
     }
 }

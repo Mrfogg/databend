@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -171,7 +171,7 @@ impl HashMethodSerializer {
         let mut res = Vec::with_capacity(group_fields.len());
         for f in group_fields.iter() {
             let data_type = f.data_type();
-            let mut deserializer = data_type.create_serializer(rows)?;
+            let mut deserializer = data_type.create_deserializer(rows)?;
 
             for (_row, key) in keys.iter_mut().enumerate() {
                 deserializer.de(key)?;
@@ -194,8 +194,8 @@ impl HashMethod for HashMethodSerializer {
             let mut group_key_len = 0;
             for col in group_columns {
                 let typ = col.data_type();
-                if common_datavalues::is_integer(&typ) {
-                    group_key_len += common_datavalues::numeric_byte_size(&typ)?;
+                if typ.is_integer() {
+                    group_key_len += typ.numeric_byte_size()?;
                 } else {
                     group_key_len += 4;
                 }
@@ -249,12 +249,12 @@ where T: DFPrimitiveType
         let mut offsize = 0;
         for f in group_fields.iter() {
             let data_type = f.data_type();
-            let mut deserializer = data_type.create_serializer(rows)?;
+            let mut deserializer = data_type.create_deserializer(rows)?;
             let reader = vec8.as_slice();
             deserializer.de_batch(&reader[offsize..], step, rows)?;
             res.push(deserializer.finish_to_series());
 
-            offsize += common_datavalues::numeric_byte_size(data_type)?;
+            offsize += data_type.numeric_byte_size()?;
         }
         Ok(res)
     }
@@ -295,7 +295,7 @@ fn build(
 ) -> Result<()> {
     for col in group_columns.iter() {
         let data_type = col.data_type();
-        let size = common_datavalues::numeric_byte_size(&data_type)?;
+        let size = data_type.numeric_byte_size()?;
         if size == mem_size {
             let series = col.to_array()?;
 

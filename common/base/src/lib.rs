@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@ pub use profiling::Profiling;
 pub use progress::Progress;
 pub use progress::ProgressCallback;
 pub use progress::ProgressValues;
-pub use runtime::BlockingWait;
 pub use runtime::Dropper;
 pub use runtime::Runtime;
 pub use runtime::TrySpawn;

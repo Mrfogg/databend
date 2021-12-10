@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,9 +52,14 @@ mock! {
         }
 }
 
+fn format_user_key(username: &str, hostname: &str) -> String {
+    format!("'{}'@'{}'", username, hostname)
+}
+
 mod add {
     use common_meta_types::AuthType;
     use common_meta_types::Operation;
+    use common_meta_types::UserInfo;
 
     use super::*;
 
@@ -172,6 +177,7 @@ mod add {
 
 mod get {
     use common_meta_types::AuthType;
+    use common_meta_types::UserInfo;
 
     use super::*;
 
@@ -323,6 +329,7 @@ mod get {
 
 mod get_users {
     use common_meta_types::AuthType;
+    use common_meta_types::UserInfo;
 
     use super::*;
 
@@ -465,6 +472,7 @@ mod drop {
 
 mod update {
     use common_meta_types::AuthType;
+    use common_meta_types::UserInfo;
 
     use super::*;
 
@@ -718,13 +726,15 @@ mod update {
 
 mod set_user_privileges {
     use common_meta_types::AuthType;
+    use common_meta_types::GrantObject;
+    use common_meta_types::UserInfo;
     use common_meta_types::UserPrivilege;
     use common_meta_types::UserPrivilegeType;
 
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_set_user_privileges() -> common_exception::Result<()> {
+    async fn test_grant_user_privileges() -> common_exception::Result<()> {
         let test_user_name = "name";
         let test_hostname = "localhost";
         let test_key = format!(
@@ -753,7 +763,12 @@ mod set_user_privileges {
         // - update_kv should be called
         let mut privileges = UserPrivilege::empty();
         privileges.set_privilege(UserPrivilegeType::Select);
-        user_info.set_privileges(privileges);
+        user_info.grants.grant_privileges(
+            test_user_name,
+            test_hostname,
+            &GrantObject::Global,
+            privileges,
+        );
         let new_value = serde_json::to_vec(&user_info)?;
 
         kv.expect_upsert_kv()
@@ -769,9 +784,10 @@ mod set_user_privileges {
         let kv = Arc::new(kv);
         let user_mgr = UserMgr::new(kv, "tenant1");
 
-        let res = user_mgr.set_user_privileges(
+        let res = user_mgr.grant_user_privileges(
             test_user_name.to_string(),
             test_hostname.to_string(),
+            GrantObject::Global,
             privileges,
             test_seq,
         );

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -72,6 +72,7 @@ mod nullable;
 mod numeric;
 mod string;
 mod string_pool;
+mod tuple;
 
 /// Represents Clickhouse Column
 pub struct Column<K: ColumnType> {
@@ -470,7 +471,7 @@ impl<K: ColumnType> Column<K> {
     }
 }
 
-pub(crate) fn new_column<K: ColumnType>(
+pub fn new_column<K: ColumnType>(
     name: &str,
     data: Arc<(dyn ColumnData + Sync + Send + 'static)>,
 ) -> Column<K> {

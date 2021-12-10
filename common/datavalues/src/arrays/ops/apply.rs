@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -172,7 +172,7 @@ impl<'a> ArrayApply<'a, &'a [u8], Cow<'a, [u8]>> for DFStringArray {
         S: DFPrimitiveType,
     {
         let arr = self.inner();
-        let values_iter = arr.values_iter().map(|x| f(x));
+        let values_iter = arr.values_iter().map(f);
         let av = AlignedVec::<_>::from_trusted_len_iter(values_iter);
 
         let (_, validity) = self.null_bits();

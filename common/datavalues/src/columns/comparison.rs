@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,10 +47,9 @@ impl DataColumn {
 
 impl PartialEq for &DataColumn {
     fn eq(&self, other: &Self) -> bool {
-        let result = self.compare(DataValueComparisonOperator::Eq, other);
-        match result {
-            Ok(v) => v.to_array().unwrap().bool().unwrap().all_true(),
-            Err(_) => false,
+        match (self.get_array_ref(), other.get_array_ref()) {
+            (Ok(lhs), Ok(rhs)) => lhs == rhs,
+            _ => false,
         }
     }
 }

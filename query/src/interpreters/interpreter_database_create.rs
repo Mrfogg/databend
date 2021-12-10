@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,19 +23,16 @@ use common_tracing::tracing;
 use crate::catalogs::Catalog;
 use crate::interpreters::Interpreter;
 use crate::interpreters::InterpreterPtr;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
 
 #[derive(Debug)]
 pub struct CreateDatabaseInterpreter {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
     plan: CreateDatabasePlan,
 }
 
 impl CreateDatabaseInterpreter {
-    pub fn try_create(
-        ctx: DatabendQueryContextRef,
-        plan: CreateDatabasePlan,
-    ) -> Result<InterpreterPtr> {
+    pub fn try_create(ctx: Arc<QueryContext>, plan: CreateDatabasePlan) -> Result<InterpreterPtr> {
         Ok(Arc::new(CreateDatabaseInterpreter { ctx, plan }))
     }
 }
@@ -51,8 +48,8 @@ impl Interpreter for CreateDatabaseInterpreter {
         &self,
         _input_stream: Option<SendableDataBlockStream>,
     ) -> Result<SendableDataBlockStream> {
-        let datasource = self.ctx.get_catalog();
-        datasource.create_database(self.plan.clone()).await?;
+        let catalog = self.ctx.get_catalog();
+        catalog.create_database(self.plan.clone().into()).await?;
 
         Ok(Box::pin(DataBlockStream::create(
             self.plan.schema(),

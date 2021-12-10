@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,10 +32,8 @@ use common_meta_types::UpsertKVActionReply;
 
 use crate::cluster::ClusterApi;
 
-#[allow(dead_code)]
 pub static CLUSTER_API_KEY_PREFIX: &str = "__fd_clusters";
 
-#[allow(dead_code)]
 pub struct ClusterMgr {
     kv_api: Arc<dyn KVApi>,
     lift_time: Duration,
@@ -189,6 +187,7 @@ impl ClusterApi for ClusterMgr {
 
         match upsert_node.await? {
             UpsertKVActionReply {
+                ident: None,
                 prev: Some(_),
                 result: None,
             } => Ok(()),
@@ -217,6 +216,7 @@ impl ClusterApi for ClusterMgr {
 
         match upsert_meta.await? {
             UpsertKVActionReply {
+                ident: None,
                 prev: Some(_),
                 result: Some(SeqV { seq: s, .. }),
             } => Ok(s),

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,17 +24,17 @@ use common_planners::PlanBuilder;
 use common_planners::PlanNode;
 use common_planners::PlanRewriter;
 
-use crate::catalogs::ToReadDataSourcePlan;
 use crate::optimizers::Optimizer;
-use crate::sessions::DatabendQueryContextRef;
+use crate::sessions::QueryContext;
+use crate::storages::ToReadDataSourcePlan;
 
 struct StatisticsExactImpl<'a> {
-    ctx: &'a DatabendQueryContextRef,
+    ctx: &'a Arc<QueryContext>,
     rewritten: bool,
 }
 
 pub struct StatisticsExactOptimizer {
-    ctx: DatabendQueryContextRef,
+    ctx: Arc<QueryContext>,
 }
 
 impl PlanRewriter for StatisticsExactImpl<'_> {
@@ -60,22 +60,22 @@ impl PlanRewriter for StatisticsExactImpl<'_> {
                     let db_name = "system";
                     let table_name = "one";
 
-                    let table = self.ctx.get_table(db_name, table_name)?;
+                    futures::executor::block_on(async move {
+                        let table = self.ctx.get_table(db_name, table_name).await?;
+                        let source_plan = table.read_plan(self.ctx.clone(), None).await?;
+                        let dummy_read_plan = PlanNode::ReadSource(source_plan);
 
-                    let io_ctx = self.ctx.get_cluster_table_io_context()?;
-                    let source_plan = table.read_plan(Arc::new(io_ctx), None)?;
-                    let dummy_read_plan = PlanNode::ReadSource(source_plan);
+                        let expr = Expression::create_literal(DataValue::UInt64(Some(
+                            read_source_plan.statistics.read_rows as u64,
+                        )));
 
-                    let expr = Expression::create_literal(DataValue::UInt64(Some(
-                        read_source_plan.statistics.read_rows as u64,
-                    )));
-
-                    self.rewritten = true;
-                    let alias_name = plan.aggr_expr[0].column_name();
-                    PlanBuilder::from(&dummy_read_plan)
-                        .expression(&[expr.clone()], "Exact Statistics")?
-                        .project(&[expr.alias(&alias_name)])?
-                        .build()?
+                        self.rewritten = true;
+                        let alias_name = plan.aggr_expr[0].column_name();
+                        PlanBuilder::from(&dummy_read_plan)
+                            .expression(&[expr.clone()], "Exact Statistics")?
+                            .project(&[expr.alias(&alias_name)])?
+                            .build()
+                    })?
                 }
                 _ => PlanNode::AggregatorPartial(plan.clone()),
             },
@@ -125,7 +125,7 @@ impl Optimizer for StatisticsExactOptimizer {
 }
 
 impl StatisticsExactOptimizer {
-    pub fn create(ctx: DatabendQueryContextRef) -> Self {
+    pub fn create(ctx: Arc<QueryContext>) -> Self {
         StatisticsExactOptimizer { ctx }
     }
 }

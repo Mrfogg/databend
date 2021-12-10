@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -75,7 +75,7 @@ impl Processor {
 
     pub async fn process_run(&mut self) -> Result<()> {
         let mut writer = Writer::create();
-        if let Some(level) = self.env.conf.clap.value_of("log-level") {
+        if let Some(level) = self.env.conf.clap.value_of("log_level") {
             if level != "info" {
                 writer.debug = true;
             }
@@ -97,7 +97,7 @@ impl Processor {
 
         loop {
             let mut writer = Writer::create();
-            if let Some(level) = self.env.conf.clap.value_of("log-level") {
+            if let Some(level) = self.env.conf.clap.value_of("log_level") {
                 if level != "info" {
                     writer.debug = true;
                 }

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use common_datavalues::DataSchema;
 use common_datavalues::DataSchemaRef;
+use common_meta_types::DropDatabaseReq;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct DropDatabasePlan {
@@ -26,5 +27,23 @@ pub struct DropDatabasePlan {
 impl DropDatabasePlan {
     pub fn schema(&self) -> DataSchemaRef {
         Arc::new(DataSchema::empty())
+    }
+}
+
+impl From<DropDatabasePlan> for DropDatabaseReq {
+    fn from(p: DropDatabasePlan) -> Self {
+        DropDatabaseReq {
+            if_exists: p.if_exists,
+            db: p.db,
+        }
+    }
+}
+
+impl From<&DropDatabasePlan> for DropDatabaseReq {
+    fn from(p: &DropDatabasePlan) -> Self {
+        DropDatabaseReq {
+            if_exists: p.if_exists,
+            db: p.db.clone(),
+        }
     }
 }

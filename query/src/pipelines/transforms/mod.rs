@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,33 +26,11 @@ pub use transform_limit::LimitTransform;
 pub use transform_limit_by::LimitByTransform;
 pub use transform_projection::ProjectionTransform;
 pub use transform_remote::RemoteTransform;
+pub use transform_sink::SinkTransform;
 pub use transform_sort_merge::SortMergeTransform;
 pub use transform_sort_partial::get_sort_descriptions;
 pub use transform_sort_partial::SortPartialTransform;
 pub use transform_source::SourceTransform;
-
-#[cfg(test)]
-mod transform_aggregator_final_test;
-#[cfg(test)]
-mod transform_aggregator_partial_test;
-#[cfg(test)]
-mod transform_expression_test;
-#[cfg(test)]
-mod transform_filter_test;
-#[cfg(test)]
-mod transform_group_by_final_test;
-#[cfg(test)]
-mod transform_group_by_partial_test;
-#[cfg(test)]
-mod transform_limit_by_test;
-#[cfg(test)]
-mod transform_limit_test;
-#[cfg(test)]
-mod transform_projection_test;
-#[cfg(test)]
-mod transform_sort_test;
-#[cfg(test)]
-mod transform_source_test;
 
 mod transform_aggregator_final;
 mod transform_aggregator_partial;
@@ -71,3 +49,4 @@ mod transform_sort_partial;
 mod transform_source;
 
 mod group_by;
+mod transform_sink;

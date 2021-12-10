@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,10 +15,16 @@
 // Borrow from apache/arrow/rust/datafusion/src/sql/sql_parser
 // See notice.md
 
+use std::convert::TryFrom;
+use std::str::FromStr;
 use std::time::Instant;
 
 use common_exception::ErrorCode;
 use common_meta_types::AuthType;
+use common_meta_types::Compression;
+use common_meta_types::Credentials;
+use common_meta_types::FileFormat;
+use common_meta_types::StageParams;
 use common_meta_types::UserPrivilege;
 use common_meta_types::UserPrivilegeType;
 use common_planners::ExplainType;
@@ -29,38 +35,49 @@ use sqlparser::ast::ColumnOptionDef;
 use sqlparser::ast::Expr;
 use sqlparser::ast::Ident;
 use sqlparser::ast::SqlOption;
+use sqlparser::ast::Statement;
 use sqlparser::ast::TableConstraint;
 use sqlparser::ast::Value;
 use sqlparser::dialect::keywords::Keyword;
 use sqlparser::dialect::Dialect;
 use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::IsOptional;
 use sqlparser::parser::Parser;
 use sqlparser::parser::ParserError;
 use sqlparser::tokenizer::Token;
 use sqlparser::tokenizer::Tokenizer;
 use sqlparser::tokenizer::Whitespace;
 
-use crate::sql::DfAlterUser;
-use crate::sql::DfCreateDatabase;
-use crate::sql::DfCreateTable;
-use crate::sql::DfCreateUser;
-use crate::sql::DfDescribeTable;
-use crate::sql::DfDropDatabase;
-use crate::sql::DfDropTable;
-use crate::sql::DfExplain;
-use crate::sql::DfGrantStatement;
+use super::statements::DfCopy;
+use crate::sql::statements::DfAlterUser;
+use crate::sql::statements::DfCompactTable;
+use crate::sql::statements::DfCreateDatabase;
+use crate::sql::statements::DfCreateStage;
+use crate::sql::statements::DfCreateTable;
+use crate::sql::statements::DfCreateUser;
+use crate::sql::statements::DfDescribeTable;
+use crate::sql::statements::DfDropDatabase;
+use crate::sql::statements::DfDropTable;
+use crate::sql::statements::DfDropUser;
+use crate::sql::statements::DfExplain;
+use crate::sql::statements::DfGrantObject;
+use crate::sql::statements::DfGrantStatement;
+use crate::sql::statements::DfInsertStatement;
+use crate::sql::statements::DfKillStatement;
+use crate::sql::statements::DfQueryStatement;
+use crate::sql::statements::DfRevokeStatement;
+use crate::sql::statements::DfSetVariable;
+use crate::sql::statements::DfShowCreateTable;
+use crate::sql::statements::DfShowDatabases;
+use crate::sql::statements::DfShowMetrics;
+use crate::sql::statements::DfShowProcessList;
+use crate::sql::statements::DfShowSettings;
+use crate::sql::statements::DfShowTables;
+use crate::sql::statements::DfShowUsers;
+use crate::sql::statements::DfTruncateTable;
+use crate::sql::statements::DfUseDatabase;
 use crate::sql::DfHint;
-use crate::sql::DfKillStatement;
-use crate::sql::DfShowCreateTable;
-use crate::sql::DfShowDatabases;
-use crate::sql::DfShowMetrics;
-use crate::sql::DfShowProcessList;
-use crate::sql::DfShowSettings;
-use crate::sql::DfShowTables;
-use crate::sql::DfShowUsers;
 use crate::sql::DfStatement;
-use crate::sql::DfTruncateTable;
-use crate::sql::DfUseDatabase;
 
 // Use `Parser::expected` instead, if possible
 macro_rules! parser_err {
@@ -215,30 +232,88 @@ impl<'a> DfParser<'a> {
                             self.expected("tables or settings", self.parser.peek_token())
                         }
                     }
-                    Keyword::TRUNCATE => {
-                        self.parser.next_token();
-                        self.parse_truncate()
-                    }
+                    Keyword::TRUNCATE => self.parse_truncate(),
+                    Keyword::SET => self.parse_set(),
+                    Keyword::INSERT => self.parse_insert(),
+                    Keyword::SELECT | Keyword::WITH | Keyword::VALUES => self.parse_query(),
                     Keyword::GRANT => {
                         self.parser.next_token();
                         self.parse_grant()
+                    }
+                    Keyword::REVOKE => {
+                        self.parser.next_token();
+                        self.parse_revoke()
+                    }
+                    Keyword::COPY => {
+                        self.parser.next_token();
+                        self.parse_copy()
                     }
                     Keyword::NoKeyword => match w.value.to_uppercase().as_str() {
                         // Use database
                         "USE" => self.parse_use_database(),
                         "KILL" => self.parse_kill_query(),
+                        "COMPACT" => self.parse_compact(),
                         _ => self.expected("Keyword", self.parser.peek_token()),
                     },
-                    _ => {
-                        // use the native parser
-                        Ok(DfStatement::Statement(self.parser.parse_statement()?))
-                    }
+                    _ => self.expected("an SQL statement", Token::Word(w)),
                 }
             }
-            _ => {
-                // use the native parser
-                Ok(DfStatement::Statement(self.parser.parse_statement()?))
-            }
+            Token::LParen => self.parse_query(),
+            unexpected => self.expected("an SQL statement", unexpected),
+        }
+    }
+
+    fn parse_query(&mut self) -> Result<DfStatement, ParserError> {
+        // self.parser.prev_token();
+        let native_query = self.parser.parse_query()?;
+        Ok(DfStatement::Query(Box::new(DfQueryStatement::try_from(
+            native_query,
+        )?)))
+    }
+
+    fn parse_set(&mut self) -> Result<DfStatement, ParserError> {
+        self.parser.next_token();
+        match self.parser.parse_set()? {
+            Statement::SetVariable {
+                local,
+                hivevar,
+                variable,
+                value,
+            } => Ok(DfStatement::SetVariable(DfSetVariable {
+                local,
+                hivevar,
+                variable,
+                value,
+            })),
+            _ => parser_err!("Expect set Variable statement"),
+        }
+    }
+
+    fn parse_insert(&mut self) -> Result<DfStatement, ParserError> {
+        self.parser.next_token();
+        match self.parser.parse_insert()? {
+            Statement::Insert {
+                or,
+                table_name,
+                columns,
+                overwrite,
+                source,
+                partitioned,
+                format,
+                after_columns,
+                table,
+            } => Ok(DfStatement::InsertQuery(DfInsertStatement {
+                or,
+                table_name,
+                columns,
+                overwrite,
+                source,
+                partitioned,
+                format,
+                after_columns,
+                table,
+            })),
+            _ => parser_err!("Expect set insert statement"),
         }
     }
 
@@ -261,9 +336,8 @@ impl<'a> DfParser<'a> {
             _ => ExplainType::Syntax,
         };
 
-        let statement = Box::new(self.parser.parse_statement()?);
-        let explain_plan = DfExplain { typ, statement };
-        Ok(DfStatement::Explain(explain_plan))
+        let statement = Box::new(self.parse_query()?);
+        Ok(DfStatement::Explain(DfExplain { typ, statement }))
     }
 
     // parse show databases where database = xxx or where database
@@ -398,12 +472,19 @@ impl<'a> DfParser<'a> {
 
     fn parse_create(&mut self) -> Result<DfStatement, ParserError> {
         match self.parser.next_token() {
-            Token::Word(w) => match w.keyword {
-                Keyword::TABLE => self.parse_create_table(),
-                Keyword::DATABASE => self.parse_create_database(),
-                Keyword::USER => self.parse_create_user(),
-                _ => self.expected("create statement", Token::Word(w)),
-            },
+            Token::Word(w) => {
+                //TODO:make stage to sql parser keyword
+                if w.value.to_uppercase() == "STAGE" {
+                    self.parse_create_stage()
+                } else {
+                    match w.keyword {
+                        Keyword::TABLE => self.parse_create_table(),
+                        Keyword::DATABASE => self.parse_create_database(),
+                        Keyword::USER => self.parse_create_user(),
+                        _ => self.expected("create statement", Token::Word(w)),
+                    }
+                }
+            }
             unexpected => self.expected("create statement", unexpected),
         }
     }
@@ -423,10 +504,12 @@ impl<'a> DfParser<'a> {
             self.parser
                 .parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let db_name = self.parser.parse_object_name()?;
+        let db_engine = self.parse_database_engine()?;
 
         let create = DfCreateDatabase {
             if_not_exists,
             name: db_name,
+            engine: db_engine,
             options: vec![],
         };
 
@@ -445,6 +528,7 @@ impl<'a> DfParser<'a> {
             Token::Word(w) => match w.keyword {
                 Keyword::DATABASE => self.parse_drop_database(),
                 Keyword::TABLE => self.parse_drop_table(),
+                Keyword::USER => self.parse_drop_user(),
                 _ => self.expected("drop statement", Token::Word(w)),
             },
             unexpected => self.expected("drop statement", unexpected),
@@ -488,19 +572,19 @@ impl<'a> DfParser<'a> {
     }
 
     // Parse 'KILL statement'.
-    fn parse_kill<F>(&mut self, f: F) -> Result<DfStatement, ParserError>
-    where F: Fn(DfKillStatement) -> DfStatement {
-        Ok(f(DfKillStatement {
+    fn parse_kill<const KILL_QUERY: bool>(&mut self) -> Result<DfStatement, ParserError> {
+        Ok(DfStatement::KillStatement(DfKillStatement {
             object_id: self.parser.parse_identifier()?,
+            kill_query: KILL_QUERY,
         }))
     }
 
     // Parse 'KILL statement'.
     fn parse_kill_query(&mut self) -> Result<DfStatement, ParserError> {
         match self.consume_token("KILL") {
-            true if self.consume_token("QUERY") => self.parse_kill(DfStatement::KillQuery),
-            true if self.consume_token("CONNECTION") => self.parse_kill(DfStatement::KillConn),
-            true => self.parse_kill(DfStatement::KillConn),
+            true if self.consume_token("QUERY") => self.parse_kill::<true>(),
+            true if self.consume_token("CONNECTION") => self.parse_kill::<false>(),
+            true => self.parse_kill::<false>(),
             false => self.expected("Must KILL", self.parser.peek_token()),
         }
     }
@@ -561,6 +645,22 @@ impl<'a> DfParser<'a> {
         Ok(DfStatement::AlterUser(alter))
     }
 
+    fn parse_drop_user(&mut self) -> Result<DfStatement, ParserError> {
+        let if_exists = self.parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parser.parse_literal_string()?;
+        let hostname = if self.consume_token("@") {
+            self.parser.parse_literal_string()?
+        } else {
+            String::from("%")
+        };
+        let drop = DfDropUser {
+            if_exists,
+            name,
+            hostname,
+        };
+        Ok(DfStatement::DropUser(drop))
+    }
+
     fn get_auth_option(&mut self) -> Result<(AuthType, String), ParserError> {
         let exist_not_identified = self.parser.parse_keyword(Keyword::NOT);
         let exist_identified = self.consume_token("IDENTIFIED");
@@ -595,35 +695,190 @@ impl<'a> DfParser<'a> {
         }
     }
 
+    fn parse_stage_file_format(&mut self) -> Result<Option<FileFormat>, ParserError> {
+        let file_format = if self.consume_token("FILE_FORMAT") {
+            self.parser.expect_token(&Token::Eq)?;
+            self.parser.expect_token(&Token::LParen)?;
+
+            let format = if self.consume_token("FORMAT") {
+                self.parser.expect_token(&Token::Eq)?;
+                self.parser.next_token().to_string()
+            } else {
+                return parser_err!("Missing FORMAT");
+            };
+
+            let file_format = match format.to_uppercase().as_str() {
+                "CSV" | "PARQUET" => {
+                    let compression = if self.consume_token("COMPRESSION") {
+                        self.parser.expect_token(&Token::Eq)?;
+                        //TODO:check compression value correctness
+                        let value = self.parser.next_token().to_string();
+                        Compression::from_str(value.as_str())
+                            .map_err(|e| ParserError::ParserError(e.to_string()))?
+                    } else {
+                        Compression::None
+                    };
+                    if "CSV" == format.to_uppercase().as_str() {
+                        if self.consume_token("RECORD_DELIMITER") {
+                            self.parser.expect_token(&Token::Eq)?;
+
+                            let record_delimiter = match self.parser.next_token() {
+                                Token::Word(w) => match w.value.to_uppercase().as_str() {
+                                    "NONE" => String::from(""),
+                                    _ => {
+                                        return self
+                                            .expected("record delimiter NONE", Token::Word(w))
+                                    }
+                                },
+                                Token::SingleQuotedString(s) => s,
+                                unexpected => {
+                                    return self
+                                        .expected("not supported record delimiter", unexpected)
+                                }
+                            };
+
+                            Some(FileFormat::Csv {
+                                compression,
+                                record_delimiter,
+                            })
+                        } else {
+                            Some(FileFormat::Csv {
+                                compression,
+                                record_delimiter: String::from(""),
+                            })
+                        }
+                    } else {
+                        Some(FileFormat::Parquet { compression })
+                    }
+                }
+                "JSON" => Some(FileFormat::Json),
+                unexpected => {
+                    return parser_err!(format!(
+                        "Expected format type {}, found: {}",
+                        "CSV|PARQUET|JSON", unexpected
+                    ))
+                }
+            };
+
+            self.parser.expect_token(&Token::RParen)?;
+            file_format
+        } else {
+            None
+        };
+
+        Ok(file_format)
+    }
+
+    fn parse_stage_credentials(&mut self, url: String) -> Result<Credentials, ParserError> {
+        if !self.consume_token("CREDENTIALS") {
+            return parser_err!("Missing CREDENTIALS");
+        }
+        self.parser.expect_token(&Token::Eq)?;
+        self.parser.expect_token(&Token::LParen)?;
+
+        let credentials = if url.to_uppercase().starts_with("S3") {
+            //TODO: current credential field order is hard code
+            let access_key_id = if self.consume_token("ACCESS_KEY_ID") {
+                self.parser.expect_token(&Token::Eq)?;
+                self.parser.parse_literal_string()?
+            } else {
+                return parser_err!("Missing S3 ACCESS_KEY_ID");
+            };
+
+            let secret_access_key = if self.consume_token("SECRET_ACCESS_KEY") {
+                self.parser.expect_token(&Token::Eq)?;
+                self.parser.parse_literal_string()?
+            } else {
+                return parser_err!("Missing S3 SECRET_ACCESS_KEY");
+            };
+            Credentials::S3 {
+                access_key_id,
+                secret_access_key,
+            }
+        } else {
+            return parser_err!("Not supported storage");
+        };
+        self.parser.expect_token(&Token::RParen)?;
+        Ok(credentials)
+    }
+
+    fn parse_create_stage(&mut self) -> Result<DfStatement, ParserError> {
+        let if_not_exists =
+            self.parser
+                .parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parser.parse_literal_string()?;
+        let url = if self.consume_token("URL") {
+            self.parser.expect_token(&Token::Eq)?;
+            self.parser.parse_literal_string()?
+        } else {
+            return parser_err!("Missing URL");
+        };
+
+        let credentials = self.parse_stage_credentials(url.clone())?;
+        let stage_params = StageParams::new(url.as_str(), credentials);
+        let file_format = self.parse_stage_file_format()?;
+
+        let comments = if self.consume_token("COMMENTS") {
+            self.parser.expect_token(&Token::Eq)?;
+            self.parser.parse_literal_string()?
+        } else {
+            String::from("")
+        };
+
+        let create = DfCreateStage {
+            if_not_exists,
+            stage_name: name,
+            stage_params,
+            file_format,
+            comments,
+        };
+
+        Ok(DfStatement::CreateStage(create))
+    }
+
     fn parse_create_table(&mut self) -> Result<DfStatement, ParserError> {
         let if_not_exists =
             self.parser
                 .parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let table_name = self.parser.parse_object_name()?;
+
+        // Parse the table which we copy schema from. This is for create table like statement.
+        // https://dev.mysql.com/doc/refman/8.0/en/create-table-like.html
+        let mut table_like = None;
+        if self.parser.parse_keyword(Keyword::LIKE) {
+            table_like = Some(self.parser.parse_object_name()?);
+        }
+
         let (columns, _) = self.parse_columns()?;
+        if !columns.is_empty() && table_like.is_some() {
+            return parser_err!("mix create table like statement and column definition.");
+        }
+
         let engine = self.parse_table_engine()?;
 
-        let mut table_properties = vec![];
-
         // parse table options: https://dev.mysql.com/doc/refman/8.0/en/create-table.html
-        if self.consume_token("LOCATION") {
-            self.parser.expect_token(&Token::Eq)?;
-            let value = self.parse_value()?;
-            table_properties.push(SqlOption {
-                name: Ident::new("LOCATION"),
-                value,
-            })
-        }
+        let options = self.parse_options()?;
 
         let create = DfCreateTable {
             if_not_exists,
             name: table_name,
             columns,
             engine,
-            options: table_properties,
+            options,
+            like: table_like,
         };
 
         Ok(DfStatement::CreateTable(create))
+    }
+
+    fn parse_database_engine(&mut self) -> Result<String, ParserError> {
+        // TODO make ENGINE as a keyword
+        if !self.consume_token("ENGINE") {
+            return Ok("".to_string());
+        }
+
+        self.parser.expect_token(&Token::Eq)?;
+        Ok(self.parser.next_token().to_string())
     }
 
     /// Parses the set of valid formats
@@ -653,6 +908,7 @@ impl<'a> DfParser<'a> {
     }
 
     fn parse_truncate(&mut self) -> Result<DfStatement, ParserError> {
+        self.parser.next_token();
         match self.parser.next_token() {
             Token::Word(w) => match w.keyword {
                 Keyword::TABLE => {
@@ -698,28 +954,142 @@ impl<'a> DfParser<'a> {
         if !self.parser.parse_keyword(Keyword::ON) {
             return self.expected("keyword ON", self.parser.peek_token());
         }
-        // TODO: Support `db_name.tbl_name` privilege level.
-        if !self.parser.consume_token(&Token::Mul) {
-            return self.expected("*", self.parser.peek_token());
-        }
-        if self.parser.consume_token(&Token::Period) && !self.parser.consume_token(&Token::Mul) {
-            return self.expected("*.*", self.parser.peek_token());
-        }
+        let on = self.parse_grant_object()?;
         if !self.parser.parse_keyword(Keyword::TO) {
             return self.expected("keyword TO", self.parser.peek_token());
         }
-        let name = self.parser.parse_literal_string()?;
+        let (name, hostname) = self.parse_user_identity()?;
+        let grant = DfGrantStatement {
+            name,
+            hostname,
+            on,
+            priv_types: privileges,
+        };
+        Ok(DfStatement::GrantPrivilege(grant))
+    }
+
+    fn parse_revoke(&mut self) -> Result<DfStatement, ParserError> {
+        let privileges = self.parse_privileges()?;
+        if !self.parser.parse_keyword(Keyword::ON) {
+            return self.expected("keyword ON", self.parser.peek_token());
+        }
+        let on = self.parse_grant_object()?;
+        if !self.parser.parse_keyword(Keyword::FROM) {
+            return self.expected("keyword FROM", self.parser.peek_token());
+        }
+        let (username, hostname) = self.parse_user_identity()?;
+        let revoke = DfRevokeStatement {
+            username,
+            hostname,
+            on,
+            priv_types: privileges,
+        };
+        Ok(DfStatement::RevokePrivilege(revoke))
+    }
+
+    fn parse_user_identity(&mut self) -> Result<(String, String), ParserError> {
+        let username = self.parser.parse_literal_string()?;
         let hostname = if self.consume_token("@") {
             self.parser.parse_literal_string()?
         } else {
             String::from("%")
         };
-        let grant = DfGrantStatement {
+        Ok((username, hostname))
+    }
+
+    /// Parse a possibly qualified, possibly quoted identifier or wild card, e.g.
+    /// `*` or `myschema`.*. The sub string pattern like "db0%" is not in planned.
+    fn parse_grant_object(&mut self) -> Result<DfGrantObject, ParserError> {
+        let chunk0 = self.parse_grant_object_pattern_chunk()?;
+        // "*" as current db or "table" with current db
+        if !self.consume_token(".") {
+            if chunk0.value == "*" {
+                return Ok(DfGrantObject::Database(None));
+            }
+            return Ok(DfGrantObject::Table(None, chunk0.value));
+        }
+        let chunk1 = self.parse_grant_object_pattern_chunk()?;
+
+        // *.* means global
+        if chunk1.value == "*" && chunk0.value == "*" {
+            return Ok(DfGrantObject::Global);
+        }
+        // *.table is not allowed
+        if chunk0.value == "*" {
+            return self.expected("whitespace", Token::Period);
+        }
+        // db.*
+        if chunk1.value == "*" {
+            return Ok(DfGrantObject::Database(Some(chunk0.value)));
+        }
+        // db.table
+        Ok(DfGrantObject::Table(Some(chunk0.value), chunk1.value))
+    }
+
+    /// Parse a chunk from the object pattern, it might be * or an identifier
+    pub fn parse_grant_object_pattern_chunk(&mut self) -> Result<Ident, ParserError> {
+        if self.consume_token("*") {
+            return Ok(Ident::new("*"));
+        }
+        let token = self.parser.peek_token();
+        self.parser
+            .parse_identifier()
+            .or_else(|_| self.expected("identifier or *", token))
+    }
+
+    // copy into mycsvtable
+    // from @my_ext_stage/tutorials/dataloading/contacts1.csv format CSV [options];
+    fn parse_copy(&mut self) -> Result<DfStatement, ParserError> {
+        self.parser.expect_keyword(Keyword::INTO)?;
+        let name = self.parser.parse_object_name()?;
+        let columns = self
+            .parser
+            .parse_parenthesized_column_list(IsOptional::Optional)?;
+        self.parser.expect_keyword(Keyword::FROM)?;
+        let location = self.parser.parse_literal_string()?;
+
+        self.parser.expect_keyword(Keyword::FORMAT)?;
+        let format = self.parser.next_token().to_string();
+
+        let options = self.parse_options()?;
+
+        Ok(DfStatement::Copy(DfCopy {
             name,
-            hostname,
-            priv_types: privileges,
-        };
-        Ok(DfStatement::GrantPrivilege(grant))
+            columns,
+            location,
+            format,
+            options,
+        }))
+    }
+
+    fn parse_options(&mut self) -> Result<Vec<SqlOption>, ParserError> {
+        let mut options = vec![];
+        loop {
+            let name = self.parser.parse_identifier();
+            if name.is_err() {
+                break;
+            }
+            let name = name.unwrap();
+            self.parser.expect_token(&Token::Eq)?;
+            let value = self.parse_value()?;
+            options.push(SqlOption { name, value });
+        }
+        Ok(options)
+    }
+
+    fn parse_compact(&mut self) -> Result<DfStatement, ParserError> {
+        self.parser.next_token();
+        match self.parser.next_token() {
+            Token::Word(w) => match w.keyword {
+                Keyword::TABLE => {
+                    let table_name = self.parser.parse_object_name()?;
+                    let compact = DfCompactTable { name: table_name };
+                    Ok(DfStatement::CompactTable(compact))
+                }
+                _ => self.expected("TABLE", Token::Word(w)),
+            },
+            unexpected => self.expected("compact statement", unexpected),
+        }
     }
 
     fn consume_token(&mut self, expected: &str) -> bool {

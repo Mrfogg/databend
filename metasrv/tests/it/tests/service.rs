@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ use databend_meta::proto::GetReq;
 // Start one random service and get the session manager.
 #[tracing::instrument(level = "info")]
 pub async fn start_metasrv() -> Result<(MetaSrvTestContext, String)> {
-    let mut tc = new_test_context(0);
+    let mut tc = new_metasrv_test_context(0);
 
     start_metasrv_with_context(&mut tc).await?;
 
@@ -56,7 +56,6 @@ pub fn next_port() -> u32 {
 
 pub struct MetaSrvTestContext {
     // /// To hold a per-case logging guard
-    // #[allow(dead_code)]
     // logging_guard: (WorkerGuard, DefaultGuard),
     pub config: configs::Config,
 
@@ -66,7 +65,7 @@ pub struct MetaSrvTestContext {
 }
 
 /// Create a new Config for test, with unique port assigned
-pub fn new_test_context(id: u64) -> MetaSrvTestContext {
+pub fn new_metasrv_test_context(id: u64) -> MetaSrvTestContext {
     let config_id = next_port();
 
     let mut config = configs::Config::empty();
@@ -115,7 +114,7 @@ pub fn new_test_context(id: u64) -> MetaSrvTestContext {
     }
 }
 
-pub async fn assert_meta_connection(addr: &str) -> anyhow::Result<()> {
+pub async fn assert_metasrv_connection(addr: &str) -> anyhow::Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     let mut client = MetaServiceClient::connect(format!("http://{}", addr)).await?;

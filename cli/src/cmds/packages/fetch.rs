@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -208,7 +208,7 @@ impl Command for FetchCommand {
     fn clap(&self) -> App<'static> {
         App::new("fetch").about(self.about()).arg(
             Arg::new("version")
-                .about("Version of databend package to fetch")
+                .help("Version of databend package to fetch")
                 .default_value("latest"),
         )
     }

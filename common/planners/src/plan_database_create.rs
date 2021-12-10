@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use common_datavalues::DataSchema;
 use common_datavalues::DataSchemaRef;
+use common_meta_types::CreateDatabaseReq;
 
 pub type DatabaseOptions = HashMap<String, String>;
 
@@ -24,7 +25,30 @@ pub type DatabaseOptions = HashMap<String, String>;
 pub struct CreateDatabasePlan {
     pub if_not_exists: bool,
     pub db: String,
+    pub engine: String,
     pub options: DatabaseOptions,
+}
+
+impl From<CreateDatabasePlan> for CreateDatabaseReq {
+    fn from(p: CreateDatabasePlan) -> Self {
+        CreateDatabaseReq {
+            if_not_exists: p.if_not_exists,
+            db: p.db.clone(),
+            engine: p.engine.to_string(),
+            options: p.options,
+        }
+    }
+}
+
+impl From<&CreateDatabasePlan> for CreateDatabaseReq {
+    fn from(p: &CreateDatabasePlan) -> Self {
+        CreateDatabaseReq {
+            if_not_exists: p.if_not_exists,
+            db: p.db.clone(),
+            engine: p.engine.clone(),
+            options: p.options.clone(),
+        }
+    }
 }
 
 impl CreateDatabasePlan {

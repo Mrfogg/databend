@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(test)]
-mod user_mgr_test;
-
 mod user;
+mod user_api;
 mod user_mgr;
+mod user_stage;
 
+pub use user::CertifiedInfo;
 pub use user::User;
-pub use user_mgr::CertifiedInfo;
-pub use user_mgr::UserManager;
-pub use user_mgr::UserManagerRef;
+pub use user_api::UserApiProvider;

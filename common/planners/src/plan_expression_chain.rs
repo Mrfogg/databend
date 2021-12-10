@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use common_datavalues::DataSchemaRef;
+use common_exception::ErrorCode;
 use common_exception::Result;
 use common_functions::scalars::FunctionFactory;
 
@@ -65,6 +66,11 @@ impl ExpressionChain {
                     return_type: arg_type.clone(),
                 };
                 self.actions.push(ExpressionAction::Input(input));
+            }
+            Expression::QualifiedColumn(_) => {
+                return Err(ErrorCode::LogicalError(
+                    "QualifiedColumn should be resolve in analyze.",
+                ));
             }
             Expression::Literal {
                 value, data_type, ..

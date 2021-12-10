@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -158,7 +158,6 @@ const PLAYGROUND_VERSION: &str = "v0.4.1-nightly";
 
 #[derive(Clone)]
 pub struct UpCommand {
-    #[allow(dead_code)]
     conf: Config,
 }
 
@@ -467,14 +466,14 @@ impl Command for UpCommand {
             .arg(
                 Arg::new("profile")
                     .long("profile")
-                    .about("Profile to run queries")
+                    .help("Profile to run queries")
                     .required(false)
                     .possible_values(&["local"])
                     .default_value("local"),
             )
             .arg(
                 Arg::new("dataset")
-                    .about("Prepared datasets")
+                    .help("Prepared datasets")
                     .takes_value(true)
                     .possible_values(&["ontime_mini"])
                     .default_value("ontime_mini")

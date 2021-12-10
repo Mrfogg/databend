@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,6 +54,8 @@ pub enum Statement {
         // Thus we have to check validity of engine in parser.
         engine: String,
         options: Vec<SQLProperty>,
+        like_db: Option<Identifier>,
+        like_table: Option<Identifier>,
     },
     // Describe schema of a table
     // Like `SHOW CREATE TABLE`

@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use common_base::tokio;
 use common_base::tokio::sync::mpsc;
@@ -25,16 +27,31 @@ use common_exception::ErrorCode;
 use common_exception::Result;
 use futures::StreamExt;
 use serde::Deserialize;
+use serde::Serialize;
 
 use crate::interpreters::InterpreterFactory;
-use crate::sessions::DatabendQueryContextRef;
-use crate::sessions::SessionManagerRef;
+use crate::sessions::QueryContext;
+use crate::sessions::SessionManager;
 use crate::sessions::SessionRef;
 use crate::sql::PlanParser;
 
 #[derive(Deserialize, Debug)]
 pub struct HttpQueryRequest {
+    #[serde(default)]
+    pub session: HttpSessionConf,
     pub sql: String,
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct HttpSessionConf {
+    pub database: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+pub enum ExecuteStateName {
+    Running,
+    Failed,
+    Succeeded,
 }
 
 pub(crate) enum ExecuteState {
@@ -42,35 +59,60 @@ pub(crate) enum ExecuteState {
     Stopped(ExecuteStopped),
 }
 
+impl ExecuteState {
+    pub(crate) fn extract(&self) -> (ExecuteStateName, Option<ErrorCode>) {
+        match self {
+            ExecuteState::Running(_) => (ExecuteStateName::Running, None),
+            ExecuteState::Stopped(v) => match &v.reason {
+                Ok(_) => (ExecuteStateName::Succeeded, None),
+                Err(e) => (ExecuteStateName::Failed, Some(e.clone())),
+            },
+        }
+    }
+}
+
 use ExecuteState::*;
 
-pub(crate) type ExecuteStateRef = Arc<RwLock<ExecuteStateWrapper>>;
+pub(crate) type ExecutorRef = Arc<RwLock<Executor>>;
 
 pub(crate) struct ExecuteStopped {
     progress: Option<ProgressValues>,
-    #[allow(dead_code)]
     reason: Result<()>,
+    stop_time: Instant,
 }
 
-pub(crate) struct ExecuteStateWrapper {
+pub(crate) struct Executor {
+    start_time: Instant,
     pub(crate) state: ExecuteState,
 }
 
-pub const STATE_RUNNING: &str = "running";
-pub const STATE_STOPPED: &str = "stopped";
-
-impl ExecuteStateWrapper {
-    pub(crate) fn get_state(&self) -> &str {
-        match &self.state {
-            Running(_) => STATE_RUNNING,
-            Stopped(_) => STATE_STOPPED,
-        }
-    }
+impl Executor {
     pub(crate) fn get_progress(&self) -> Option<ProgressValues> {
         match &self.state {
             Running(r) => Some(r.context.get_progress_value()),
             Stopped(f) => f.progress.clone(),
         }
+    }
+    pub(crate) fn elapsed(&self) -> Duration {
+        match &self.state {
+            Running(_) => Instant::now() - self.start_time,
+            Stopped(f) => f.stop_time - self.start_time,
+        }
+    }
+    pub(crate) async fn stop(this: &ExecutorRef, reason: Result<()>, kill: bool) {
+        let mut guard = this.write().await;
+        if let Running(r) = &guard.state {
+            // release session
+            let progress = Some(r.context.get_progress_value());
+            if kill {
+                r.session.force_kill_query();
+            }
+            guard.state = Stopped(ExecuteStopped {
+                progress,
+                reason,
+                stop_time: Instant::now(),
+            });
+        };
     }
 }
 
@@ -91,21 +133,24 @@ pub(crate) struct ExecuteRunning {
     // used to kill query
     session: SessionRef,
     // mainly used to get progress for now
-    context: DatabendQueryContextRef,
+    context: Arc<QueryContext>,
 }
 
 impl ExecuteState {
     pub(crate) async fn try_create(
         request: &HttpQueryRequest,
-        session_manager: &SessionManagerRef,
+        session_manager: &Arc<SessionManager>,
         block_tx: mpsc::Sender<DataBlock>,
-    ) -> Result<(ExecuteStateRef, DataSchemaRef)> {
+    ) -> Result<(ExecutorRef, DataSchemaRef)> {
         let sql = &request.sql;
         let session = session_manager.create_session("http-statement")?;
         let context = session.create_context().await?;
+        if let Some(db) = &request.session.database {
+            context.set_current_database(db.clone()).await?;
+        };
         context.attach_query_str(sql);
 
-        let plan = PlanParser::create(context.clone()).build_from_sql(sql)?;
+        let plan = PlanParser::parse(sql, context.clone()).await?;
         let schema = plan.schema();
 
         let interpreter = InterpreterFactory::get(context.clone(), plan.clone())?;
@@ -121,11 +166,12 @@ impl ExecuteState {
             session,
             context: context.clone(),
         };
-        let state = Arc::new(RwLock::new(ExecuteStateWrapper {
+        let executor = Arc::new(RwLock::new(Executor {
+            start_time: Instant::now(),
             state: Running(running_state),
         }));
-        let state_clone = state.clone();
 
+        let executor_clone = executor.clone();
         context
             .try_spawn(async move {
                 loop {
@@ -134,32 +180,22 @@ impl ExecuteState {
                             Ok(block) => tokio::select! {
                                 _ = block_tx.send(block) => { },
                                 _ = abort_rx.recv() => {
-                                    ExecuteState::stop(&state, Err(ErrorCode::AbortedQuery("query aborted"))).await;
+                                    Executor::stop(&executor, Err(ErrorCode::AbortedQuery("query aborted")), true).await;
                                     break;
                                 },
                             },
                             Err(err) => {
-                                ExecuteState::stop(&state, Err(err)).await;
+                                Executor::stop(&executor, Err(err), false).await;
                                 break
                             }
                         };
                     } else {
-                        ExecuteState::stop(&state, Ok(())).await;
+                        Executor::stop(&executor, Ok(()), false).await;
                         break;
                     }
                 }
                 log::debug!("drop block sender!");
             })?;
-        Ok((state_clone, schema))
-    }
-
-    pub(crate) async fn stop(this: &ExecuteStateRef, reason: Result<()>) {
-        let mut guard = this.write().await;
-        if let Running(r) = &guard.state {
-            // release session
-            let progress = Some(r.context.get_progress_value());
-            r.session.force_kill_session();
-            guard.state = Stopped(ExecuteStopped { progress, reason });
-        };
+        Ok((executor_clone, schema))
     }
 }

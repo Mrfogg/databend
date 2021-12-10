@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -200,4 +200,15 @@ fn test_parse_date_time64_without_timezone() {
     let source = " DateTime64( 5 )";
     let res = parse_date_time64(source).unwrap();
     assert_eq!(res, (5, None))
+}
+
+#[test]
+fn test_parse_tuple_type() {
+    let source = "Tuple(Int8,String, Float64)";
+    let res = parse_tuple_type(source).unwrap();
+    assert_eq!(res, vec![
+        "Int8".to_owned(),
+        "String".to_owned(),
+        "Float64".to_owned()
+    ])
 }

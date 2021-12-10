@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,18 +21,17 @@ mod metrics;
 mod session;
 mod session_info;
 mod session_ref;
-mod session_test;
+mod session_status;
 #[allow(clippy::module_inception)]
 mod sessions;
 mod sessions_info;
 mod settings;
 
-pub use context::DatabendQueryContext;
-pub use context::DatabendQueryContextRef;
-pub use context_shared::DatabendQueryContextShared;
+pub use context::QueryContext;
+pub use context_shared::QueryContextShared;
 pub use session::Session;
 pub use session_info::ProcessInfo;
 pub use session_ref::SessionRef;
+pub use session_status::MutableStatus;
 pub use sessions::SessionManager;
-pub use sessions::SessionManagerRef;
 pub use settings::Settings;

@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ pub const QUERY_FLIGHT_API_ADDRESS: &str = "QUERY_FLIGHT_API_ADDRESS";
 pub const QUERY_HTTP_API_ADDRESS: &str = "QUERY_HTTP_API_ADDRESS";
 pub const QUERY_METRICS_API_ADDRESS: &str = "QUERY_METRIC_API_ADDRESS";
 pub const QUERY_WAIT_TIMEOUT_MILLS: &str = "QUERY_WAIT_TIMEOUT_MILLS";
+pub const QUERY_MAX_QUERY_LOG_SIZE: &str = "QUERY_MAX_QUERY_LOG_SIZE";
 const QUERY_API_TLS_SERVER_CERT: &str = "QUERY_API_TLS_SERVER_CERT";
 const QUERY_API_TLS_SERVER_KEY: &str = "QUERY_API_TLS_SERVER_KEY";
 const QUERY_API_TLS_SERVER_ROOT_CA_CERT: &str = "QUERY_API_TLS_SERVER_ROOT_CA_CERT";
@@ -40,6 +41,11 @@ const QUERY_RPC_TLS_SERVER_CERT: &str = "QUERY_RPC_TLS_SERVER_CERT";
 const QUERY_RPC_TLS_SERVER_KEY: &str = "QUERY_RPC_TLS_SERVER_KEY";
 const QUERY_RPC_TLS_SERVER_ROOT_CA_CERT: &str = "QUERY_RPC_TLS_SERVER_ROOT_CA_CERT";
 const QUERY_RPC_TLS_SERVICE_DOMAIN_NAME: &str = "QUERY_RPC_TLS_SERVICE_DOMAIN_NAME";
+
+const QUERY_TABLE_ENGINE_CSV_ENABLED: &str = "QUERY_TABLE_ENGINE_CSV_ENABLED";
+const QUERY_TABLE_ENGINE_PARQUET_ENABLED: &str = "QUERY_TABLE_ENGINE_PARQUET_ENABLED";
+const QUERY_TABLE_ENGINE_MEMORY_ENABLED: &str = "QUERY_TABLE_ENGINE_MEMORY_ENABLED";
+const QUERY_TABLE_ENGINE_GITHUB_ENABLED: &str = "QUERY_TABLE_ENGINE_GITHUB_ENABLED";
 
 /// Query config group.
 /// serde(default) make the toml de to default working.
@@ -181,13 +187,49 @@ pub struct QueryConfig {
     #[serde(default)]
     pub rpc_tls_query_service_domain_name: String,
 
+    #[structopt(long, env = QUERY_TABLE_ENGINE_CSV_ENABLED, help = "Table engine csv enabled")]
+    #[serde(default)]
+    pub table_engine_csv_enabled: bool,
+
+    #[structopt(long, env = QUERY_TABLE_ENGINE_PARQUET_ENABLED, help = "Table engine parquet enabled")]
+    #[serde(default)]
+    pub table_engine_parquet_enabled: bool,
+
     #[structopt(
         long,
-        env = QUERY_WAIT_TIMEOUT_MILLS,
-        default_value = "5000"
-        )]
+        env = QUERY_TABLE_ENGINE_MEMORY_ENABLED,
+        parse(try_from_str),
+        default_value = "true",
+        help = "Table engine memory enabled"
+    )]
+    #[serde(default)]
+    pub table_engine_memory_enabled: bool,
+
+    #[structopt(
+        long,
+        env = QUERY_TABLE_ENGINE_GITHUB_ENABLED,
+        parse(try_from_str),
+        default_value = "true",
+        help = "Table engine github enabled"
+    )]
+    #[serde(default)]
+    pub table_engine_github_enabled: bool,
+
+    #[structopt(
+    long,
+    env = QUERY_WAIT_TIMEOUT_MILLS,
+    default_value = "5000"
+    )]
     #[serde(default)]
     pub wait_timeout_mills: u64,
+
+    #[structopt(
+    long,
+    env = QUERY_MAX_QUERY_LOG_SIZE,
+    default_value = "10000"
+    )]
+    #[serde(default)]
+    pub max_query_log_size: usize,
 }
 
 impl QueryConfig {
@@ -213,7 +255,12 @@ impl QueryConfig {
             rpc_tls_server_key: "".to_string(),
             rpc_tls_query_server_root_ca_cert: "".to_string(),
             rpc_tls_query_service_domain_name: "localhost".to_string(),
+            table_engine_csv_enabled: false,
+            table_engine_parquet_enabled: false,
+            table_engine_memory_enabled: true,
+            table_engine_github_enabled: true,
             wait_timeout_mills: 5000,
+            max_query_log_size: 10000,
         }
     }
 
@@ -327,13 +374,47 @@ impl QueryConfig {
             String,
             QUERY_RPC_TLS_SERVICE_DOMAIN_NAME
         );
-
         env_helper!(
             mut_config,
             query,
             wait_timeout_mills,
             u64,
             QUERY_WAIT_TIMEOUT_MILLS
+        );
+        env_helper!(
+            mut_config,
+            query,
+            max_query_log_size,
+            usize,
+            QUERY_MAX_QUERY_LOG_SIZE
+        );
+        env_helper!(
+            mut_config,
+            query,
+            table_engine_csv_enabled,
+            bool,
+            QUERY_TABLE_ENGINE_CSV_ENABLED
+        );
+        env_helper!(
+            mut_config,
+            query,
+            table_engine_parquet_enabled,
+            bool,
+            QUERY_TABLE_ENGINE_PARQUET_ENABLED
+        );
+        env_helper!(
+            mut_config,
+            query,
+            table_engine_memory_enabled,
+            bool,
+            QUERY_TABLE_ENGINE_MEMORY_ENABLED
+        );
+        env_helper!(
+            mut_config,
+            query,
+            table_engine_github_enabled,
+            bool,
+            QUERY_TABLE_ENGINE_GITHUB_ENABLED
         );
     }
 }

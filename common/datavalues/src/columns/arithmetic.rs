@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,6 +87,17 @@ impl Neg for &DataColumn {
     }
 }
 
+impl IntDiv for &DataColumn {
+    type Output = Result<DataColumn>;
+
+    fn int_div(self, rhs: Self) -> Self::Output {
+        let lhs = self.to_minimal_array()?;
+        let rhs = rhs.to_minimal_array()?;
+        let result: DataColumn = lhs.int_div(&rhs)?.into();
+        Ok(result.resize_constant(result.len()))
+    }
+}
+
 impl DataColumn {
     pub fn arithmetic(
         &self,
@@ -99,6 +110,7 @@ impl DataColumn {
             DataValueArithmeticOperator::Mul => self * rhs,
             DataValueArithmeticOperator::Div => self / rhs,
             DataValueArithmeticOperator::Modulo => self % rhs,
+            DataValueArithmeticOperator::IntDiv => self.int_div(rhs),
         }
     }
 

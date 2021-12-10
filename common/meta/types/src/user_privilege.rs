@@ -41,7 +41,7 @@ const ALL_PRIVILEGES: BitFlags<UserPrivilegeType> = make_bitflags!(
         | Set}
 );
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub struct UserPrivilege {
     privileges: BitFlags<UserPrivilegeType>,
 }
@@ -51,6 +51,10 @@ impl UserPrivilege {
         UserPrivilege {
             privileges: BitFlags::empty(),
         }
+    }
+
+    pub fn all_privileges() -> Self {
+        ALL_PRIVILEGES.into()
     }
 
     pub fn set_privilege(&mut self, privilege: UserPrivilegeType) {
@@ -80,5 +84,17 @@ impl ops::BitOrAssign for UserPrivilege {
     #[inline(always)]
     fn bitor_assign(&mut self, other: Self) {
         self.privileges |= other.privileges
+    }
+}
+
+impl From<UserPrivilege> for BitFlags<UserPrivilegeType> {
+    fn from(privilege: UserPrivilege) -> BitFlags<UserPrivilegeType> {
+        privilege.privileges
+    }
+}
+
+impl From<BitFlags<UserPrivilegeType>> for UserPrivilege {
+    fn from(privileges: BitFlags<UserPrivilegeType>) -> UserPrivilege {
+        UserPrivilege { privileges }
     }
 }

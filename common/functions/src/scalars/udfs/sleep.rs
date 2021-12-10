@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@ use std::fmt;
 use std::time::Duration;
 
 use common_datavalues::columns::DataColumn;
-use common_datavalues::is_numeric;
 use common_datavalues::prelude::DataColumnsWithField;
 use common_datavalues::DataSchema;
 use common_datavalues::DataType;
@@ -56,11 +55,10 @@ impl Function for SleepFunction {
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        if !is_numeric(&args[0]) {
+        if !args[0].is_numeric() {
             return Err(ErrorCode::BadArguments(format!(
                 "Illegal type {} of argument of function {}, expected numeric",
-                args[0].to_string(),
-                self.display_name
+                args[0], self.display_name
             )));
         }
 

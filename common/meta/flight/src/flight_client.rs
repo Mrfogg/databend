@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,9 +38,9 @@ use crate::flight_action::MetaFlightAction;
 use crate::flight_action::RequestFor;
 use crate::flight_client_conf::MetaFlightClientConf;
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MetaFlightClient {
-    #[allow(dead_code)]
     token: Vec<u8>,
     pub(crate) client: FlightServiceClient<InterceptedService<Channel, AuthInterceptor>>,
 }

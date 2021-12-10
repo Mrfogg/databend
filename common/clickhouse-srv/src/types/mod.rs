@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -120,8 +120,8 @@ impl fmt::Debug for ServerInfo {
     }
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
+#[derive(Clone)]
 pub(crate) struct Context {
     pub(crate) server_info: ServerInfo,
     pub(crate) hostname: String,
@@ -223,6 +223,7 @@ pub enum SqlType {
     Decimal(u8, u8),
     Enum8(Vec<(String, i8)>),
     Enum16(Vec<(String, i16)>),
+    Tuple(Vec<&'static SqlType>),
 }
 
 lazy_static! {
@@ -303,6 +304,10 @@ impl SqlType {
                     .collect();
                 format!("Enum16({})", a.join(",")).into()
             }
+            SqlType::Tuple(types) => {
+                let a: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+                format!("Tuple({})", a.join(",")).into()
+            }
         }
     }
 
@@ -310,6 +315,7 @@ impl SqlType {
         match self {
             SqlType::Nullable(inner) => 1 + inner.level(),
             SqlType::Array(inner) => 1 + inner.level(),
+            SqlType::Tuple(types) => types.iter().map(|t| t.level()).max().unwrap_or(0) + 1,
             _ => 0,
         }
     }

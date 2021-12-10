@@ -1,4 +1,4 @@
-// Copyright 2020 Datafuse Labs.
+// Copyright 2021 Datafuse Labs.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ where T: IntegerTypedArithmetic + Clone + Sync + Send + 'static
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        if is_date_or_date_time(&args[0]) {
+        if args[0].is_date_or_date_time() {
             Ok(args[0].clone())
         } else {
             Ok(args[1].clone())
@@ -89,9 +89,10 @@ where T: IntegerTypedArithmetic + Clone + Sync + Send + 'static
     }
 
     fn eval(&self, columns: &DataColumnsWithField, _input_rows: usize) -> Result<DataColumn> {
-        if !(matches!(self.op, DataValueArithmeticOperator::Plus)
-            || matches!(self.op, DataValueArithmeticOperator::Minus))
-        {
+        if !(matches!(
+            self.op,
+            DataValueArithmeticOperator::Plus | DataValueArithmeticOperator::Minus
+        )) {
             return Err(ErrorCode::IllegalDataType(format!(
                 "Illegal operation {:?} between interval and date time.",
                 self.op,
@@ -100,17 +101,18 @@ where T: IntegerTypedArithmetic + Clone + Sync + Send + 'static
 
         let date_col: &DataColumnWithField;
         let integer_col: &DataColumnWithField;
-        if is_date_or_date_time(columns[0].data_type()) && is_integer(columns[1].data_type()) {
+        if columns[0].data_type().is_date_or_date_time() && columns[1].data_type().is_integer() {
             date_col = &columns[0];
             integer_col = &columns[1];
-        } else if is_date_or_date_time(columns[1].data_type()) && is_integer(columns[0].data_type())
+        } else if columns[1].data_type().is_date_or_date_time()
+            && columns[0].data_type().is_integer()
         {
             date_col = &columns[1];
             integer_col = &columns[0];
         } else {
             return Err(ErrorCode::IllegalDataType(format!(
-				"Illegal arguments for function {}. Should be a date or dateTime plus or minus an integer.",
-				self.name())));
+                "Illegal arguments for function {}. Should be a date or dateTime plus or minus an integer.",
+                self.name())));
         }
 
         T::get_func(integer_col.data_type(), date_col.data_type())(
@@ -528,8 +530,7 @@ impl IntervalFunctionFactory {
     ) -> Result<(&'a DataColumnWithField, &'a DataColumnWithField)> {
         match op {
             DataValueArithmeticOperator::Plus | DataValueArithmeticOperator::Minus => {
-                if is_integer(col0.data_type()) || matches!(col0.data_type(), DataType::Interval(_))
-                {
+                if col0.data_type().is_integer() || col0.data_type().is_interval() {
                     Ok((col0, col1))
                 } else {
                     Ok((col1, col0))
